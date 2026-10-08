@@ -31,6 +31,7 @@ nucleus-harness = { path = "crates/harness" }
 anyhow = "1"
 async-trait = "0.1"
 bollard = "0.21"
+cap-std = "4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 futures = "0.3"
 gix = { version = "0.89", default-features = false, features = ["revision", "blob-diff", "max-performance-safe", "sha1"] }

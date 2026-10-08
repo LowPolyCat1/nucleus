@@ -340,3 +340,38 @@ async fn marking_a_turn_wrong_penalises_its_skills_once() {
     assert!(f.harness.mark_last_turn_wrong(&conv.id).await.unwrap().is_empty());
     assert!(f.harness.mark_last_turn_wrong("missing").await.is_err());
 }
+
+#[tokio::test]
+async fn outbox_symlinks_to_host_files_are_ignored() {
+    let f = fixture(Engine::Docker).await;
+    let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
+    let secret = f.dir.path().join("secret.json");
+    std::fs::write(
+        &secret,
+        "{\"kind\":\"skill\",\"content\":\"---\\nname: leaked\\ndescription: d\\n---\\n\",\"rationale\":\"r\"}",
+    )
+    .unwrap();
+    let outbox = f.dir.path().join("data/conversations").join(&conv.id).join("outbox");
+    std::fs::create_dir_all(outbox.join("proposals")).unwrap();
+    std::os::unix::fs::symlink(&secret, outbox.join("proposals/1.json")).unwrap();
+    f.mode("noop");
+    f.harness.send_message(&conv.id, "x").await.unwrap();
+    assert!(
+        f.harness.proposals().await.unwrap().is_empty(),
+        "a symlinked entry must not become a proposal"
+    );
+    assert!(
+        f.events()
+            .iter()
+            .any(|e| matches!(e, HarnessEvent::ProposalFailed { error, .. } if error.contains("symlink")))
+    );
+    // The host file is untouched and the symlink was moved aside.
+    assert!(secret.exists());
+    assert!(
+        std::fs::symlink_metadata(outbox.join("processed/1.json"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}

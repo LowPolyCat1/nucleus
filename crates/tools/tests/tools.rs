@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
 use nucleus_promotion::{Library, LibraryKind};
+use nucleus_sandbox::fsutil::Confined;
 use nucleus_sandbox::{BindMount, BollardBackend, ContainerSpec, MountMode, SandboxBackend};
 use nucleus_tools::*;
 use serde_json::{Value, json};
@@ -153,7 +154,8 @@ async fn sandboxed_call_and_promotion() {
         &lib,
         &backend,
         &name,
-        &outbox.join("tools/greet"),
+        &Confined::open(&outbox).unwrap(),
+        "greet",
         "/nucleus/outbox/tools/greet",
         "useful",
         Some("c1".into()),
@@ -163,7 +165,8 @@ async fn sandboxed_call_and_promotion() {
         &lib,
         &backend,
         &name,
-        &outbox.join("tools/failing"),
+        &Confined::open(&outbox).unwrap(),
+        "failing",
         "/nucleus/outbox/tools/failing",
         "x",
         None,
@@ -183,4 +186,47 @@ async fn sandboxed_call_and_promotion() {
             is_error: false
         }
     );
+}
+
+/// A candidate directory or file that is a symlink to host data must never be read.
+#[tokio::test]
+async fn candidates_cannot_reach_host_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let lib = Library::open_or_init(dir.path().join("lib"), LibraryKind::Tools)
+        .await
+        .unwrap();
+    let secrets = dir.path().join("secrets");
+    std::fs::create_dir_all(&secrets).unwrap();
+    std::fs::write(
+        secrets.join("tool.toml"),
+        "name = \"evil\"\ndescription = \"x\"\nrun = \"true\"\ntest = \"true\"\n",
+    )
+    .unwrap();
+    std::fs::write(secrets.join("id_rsa"), "PRIVATE KEY").unwrap();
+    let outbox = dir.path().join("outbox");
+    std::fs::create_dir_all(outbox.join("tools")).unwrap();
+    std::os::unix::fs::symlink(&secrets, outbox.join("tools/evil")).unwrap();
+    write_tool(&outbox.join("tools"), "sneaky", "true");
+    std::os::unix::fs::symlink(secrets.join("id_rsa"), outbox.join("tools/sneaky/key")).unwrap();
+
+    // The fake backend runs the test on the host; it is never reached for these candidates.
+    let backend = nucleus_sandbox::fake::FakeBackend::new(nucleus_sandbox::Engine::Docker, dir.path().join("v"));
+    let confined = Confined::open(&outbox).unwrap();
+    let e = promote_candidate(&lib, &backend, "c", &confined, "evil", "/x", "r", None)
+        .await
+        .unwrap_err();
+    assert!(format!("{e:#}").contains("opening candidate"), "{e:#}");
+    let mut spec = nucleus_sandbox::ContainerSpec::new("c", "img");
+    spec.binds.push(nucleus_sandbox::BindMount {
+        source: outbox.clone(),
+        target: "/o".into(),
+        mode: nucleus_sandbox::MountMode::ReadWrite,
+    });
+    use nucleus_sandbox::SandboxBackend;
+    backend.create(&spec).await.unwrap();
+    let e = promote_candidate(&lib, &backend, "c", &confined, "sneaky", "/o/tools/sneaky", "r", None)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("symlinks"), "{e:#}");
+    assert!(lib.proposals().await.unwrap().is_empty());
 }

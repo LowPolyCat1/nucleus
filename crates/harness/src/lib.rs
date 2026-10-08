@@ -9,10 +9,11 @@ mod events;
 mod image;
 mod launcher;
 mod proposals;
+mod sandbox_git;
 mod state;
 
 pub use events::{EventSink, HarnessEvent};
-pub use image::{AGENT_CONTAINERFILE, build_agent_image};
+pub use image::{AGENT_CONTAINERFILE, BUILD_CA_FILE, build_agent_image, build_image};
 pub use launcher::SandboxLauncher;
 pub use proposals::{AnyProposal, ProposalDetail};
 pub use state::*;
@@ -541,6 +542,10 @@ impl Harness {
         let (_, _, support) = self.conversation_dirs(conv_id);
         std::fs::create_dir_all(&support)?;
         std::fs::write(support.join("mcp-server.js"), nucleus_tools::MCP_SERVER_JS)?;
+        std::fs::write(
+            support.join("gitfile"),
+            format!("gitdir: {}\n", sandbox_git::GIT_DIR_MOUNT),
+        )?;
         let tools = nucleus_tools::load_registry(self.tools.root());
         std::fs::write(
             support.join("tools.json"),
@@ -611,6 +616,19 @@ impl Harness {
         spec.binds.push(ro(self.tools.root(), nucleus_tools::TOOLS_MOUNT));
         spec.binds.push(ro(&support, SUPPORT_MOUNT));
         spec.binds.push(rw(&outbox, OUTBOX_MOUNT));
+        // Git in the sandbox: a private git dir, the main repository's objects read-only, and a
+        // pointer file over the worktree's `.git` (which names a host path).
+        let git_dir = self.paths.conversation(&conv.id).join("git");
+        std::fs::create_dir_all(&git_dir)?;
+        spec.binds.push(rw(&git_dir, sandbox_git::GIT_DIR_MOUNT));
+        spec.binds
+            .push(ro(&vcs.common_dir().join("objects"), sandbox_git::MAIN_OBJECTS_MOUNT));
+        spec.binds
+            .push(ro(&support.join("gitfile"), &format!("{WORKSPACE_MOUNT}/.git")));
+        spec.env
+            .insert("NUCLEUS_GIT_DIR".into(), sandbox_git::GIT_DIR_MOUNT.into());
+        spec.env
+            .insert("NUCLEUS_MAIN_OBJECTS".into(), sandbox_git::MAIN_OBJECTS_MOUNT.into());
         spec.binds.extend(resolved.binds);
         let (volumes, cache_env) = caches::mounts(caches::DEFAULT_CACHES);
         spec.chown_paths = volumes.iter().map(|v| v.target.clone()).collect();
@@ -658,8 +676,9 @@ impl Harness {
     fn system_append(&self, conv: &Conversation) -> String {
         format!(
             "You are running inside the nucleus harness, in a sandboxed container.\n\
-             - /workspace is a git worktree on branch {branch}, created from {base}. The harness commits your changes \
-             after every turn; do not create commits or switch branches yourself.\n\
+             - /workspace is a git worktree on branch {branch}, created from {base}. You can use git normally on this branch \
+             (commit as often as you like); the harness commits anything left uncommitted after every turn. \
+             Do not switch branches or rewrite commits from earlier turns.\n\
              - Network access is restricted by the workspace policy; if a download is blocked, say which host you need.\n\
              - Dependencies from templates are mounted under /deps and are read-only.\n\
              - When you finish a task and learned something reusable, propose a skill with the nucleus propose_skill tool. \
@@ -690,6 +709,15 @@ impl Harness {
         {
             bail!("set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in settings first");
         }
+        let vcs = self.vcs_for(&conv.workspace_id).await?;
+        let tip_before = vcs.resolve(&format!("refs/heads/{}", conv.branch)).await?;
+        let sandbox_git = match self.sync_sandbox_git(&conv, &tip_before).await {
+            Ok(enabled) => enabled,
+            Err(e) => {
+                tracing::warn!(conversation = %conv.id, "git in the sandbox is unavailable: {e:#}");
+                false
+            }
+        };
         let launcher = Arc::new(SandboxLauncher {
             backend: self.backend.clone(),
             container: conv.container.clone(),
@@ -752,7 +780,28 @@ impl Harness {
             };
             self.skills.usage().record_outcome(skill, outcome).ok();
         }
-        let vcs = self.vcs_for(&conv.workspace_id).await?;
+        if sandbox_git {
+            match self.import_sandbox_commits(&conv, vcs.workdir(), &tip_before).await {
+                Ok(sandbox_git::Import::Imported(commit)) => {
+                    tracing::info!(conversation = %conv.id, %commit, "imported the agent's own commits");
+                    self.emit(HarnessEvent::Committed {
+                        conversation_id: conv.id.clone(),
+                        commit,
+                    });
+                }
+                Ok(sandbox_git::Import::Rejected(commit)) => {
+                    tracing::warn!(conversation = %conv.id, %commit, "agent rewrote history; commits not imported");
+                    self.emit(HarnessEvent::Agent {
+                        conversation_id: conv.id.clone(),
+                        event: AgentEvent::Error {
+                            message: "The agent rewrote commits that were already saved; its history was not imported, but its changes are committed.".into(),
+                        },
+                    });
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(conversation = %conv.id, "importing sandbox commits failed: {e:#}"),
+            }
+        }
         let message = format!("Agent turn: {}\n\nConversation: {}", first_line(prompt, 60), conv.id);
         match vcs.commit_all(&conv.worktree, &message).await {
             Ok(Some(commit)) => {
@@ -771,6 +820,12 @@ impl Harness {
                         message: format!("committing agent changes failed: {e:#}"),
                     },
                 })
+            }
+        }
+        if sandbox_git {
+            let tip = vcs.resolve(&format!("refs/heads/{}", conv.branch)).await?;
+            if let Err(e) = self.sync_sandbox_git(&conv, &tip).await {
+                tracing::warn!(conversation = %conv.id, "syncing git in the sandbox failed: {e:#}");
             }
         }
         self.process_outbox(&conv).await;

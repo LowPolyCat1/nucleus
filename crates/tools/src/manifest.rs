@@ -27,16 +27,38 @@ fn default_timeout() -> u64 {
 }
 
 impl ToolManifest {
+    /// Load a manifest from the trusted tools library.
     pub fn load(dir: &Path) -> crate::Result<Self> {
         let path = dir.join(MANIFEST_FILE);
         let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let mut m: Self = toml::from_str(&text).with_context(|| format!("invalid {}", path.display()))?;
+        let schema = dir.join("schema.json");
+        let schema = if schema.is_file() {
+            Some(std::fs::read_to_string(schema)?)
+        } else {
+            None
+        };
+        Self::from_parts(&text, schema.as_deref()).with_context(|| format!("invalid {}", path.display()))
+    }
+
+    /// Load a manifest from a directory the sandbox wrote.
+    pub fn load_confined(dir: &nucleus_sandbox::fsutil::Confined) -> crate::Result<Self> {
+        let text = dir
+            .read_text(MANIFEST_FILE, 64 * 1024)
+            .with_context(|| format!("reading {MANIFEST_FILE}"))?;
+        let schema = if dir.exists("schema.json") {
+            Some(dir.read_text("schema.json", 256 * 1024)?)
+        } else {
+            None
+        };
+        Self::from_parts(&text, schema.as_deref()).with_context(|| format!("invalid {MANIFEST_FILE}"))
+    }
+
+    fn from_parts(manifest: &str, schema: Option<&str>) -> crate::Result<Self> {
+        let mut m: Self = toml::from_str(manifest)?;
         if m.input_schema.is_none() {
-            let schema = dir.join("schema.json");
-            m.input_schema = Some(if schema.is_file() {
-                serde_json::from_str(&std::fs::read_to_string(schema)?).context("invalid schema.json")?
-            } else {
-                serde_json::json!({ "type": "object" })
+            m.input_schema = Some(match schema {
+                Some(s) => serde_json::from_str(s).context("invalid schema.json")?,
+                None => serde_json::json!({ "type": "object" }),
             });
         }
         m.validate()?;

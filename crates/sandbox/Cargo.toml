@@ -12,6 +12,7 @@ fake = []
 anyhow.workspace = true
 async-trait.workspace = true
 bollard.workspace = true
+cap-std.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

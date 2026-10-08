@@ -15,6 +15,7 @@ use nucleus_vcs::cli::git;
 /// - `slow`: prints init, then sleeps (for cancel and concurrency tests)
 /// - `crash`: prints init and exits 2 without a result
 /// - `noop`: completes a turn without touching files
+/// - `gitcommit` / `gitlog` / `gitamend`: use git inside the sandbox
 pub const FAKE_CLAUDE: &str = r#"#!/bin/sh
 mode=$(cat "$NUCLEUS_FAKE_DIR/mode" 2>/dev/null || echo edit)
 printf '%s\n' "$@" > "$NUCLEUS_FAKE_DIR/last-args"
@@ -22,8 +23,23 @@ echo '{"type":"system","subtype":"init","session_id":"sess-42","tools":["Bash","
 case "$mode" in
   slow) exec sleep 30 ;;
   crash) echo "boom" >&2; exit 2 ;;
+  gitcommit)
+    # The agent uses git itself (in the real sandbox /workspace/.git points at $NUCLEUS_GIT_DIR).
+    echo committed > committed.txt
+    GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git add committed.txt
+    GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git commit -q -m "agent: add committed.txt"
+    echo loose > loose.txt
+    ;;
+  gitlog)
+    GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git log --format=%s > "$NUCLEUS_FAKE_DIR/gitlog"
+    GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git status --porcelain > "$NUCLEUS_FAKE_DIR/gitstatus"
+    ;;
+  gitamend)
+    echo amended >> committed.txt
+    GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git commit -q -a --amend -m "agent: rewritten"
+    ;;
 esac
-if [ "$mode" != noop ]; then
+if [ "$mode" = edit ] || [ "$mode" = propose ]; then
   echo "turn" >> notes.txt
   echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t0","name":"Skill","input":{"skill":"rust-tests"}}]}}'
 fi

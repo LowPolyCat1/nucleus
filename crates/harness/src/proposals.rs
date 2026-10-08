@@ -1,6 +1,7 @@
 //! Proposals from the agent's outbox and the unified proposal API for the UI.
 
 use nucleus_promotion::{FileChange, LibraryKind, NewProposal, Proposal};
+use nucleus_sandbox::fsutil::Confined;
 use nucleus_templates::TemplateManifest;
 use nucleus_vcs::{CommitInfo, FileDiff};
 use serde::{Deserialize, Serialize};
@@ -28,21 +29,17 @@ impl Harness {
     /// Turn outbox entries written by the in-container MCP server into proposals. Each entry is
     /// processed once; failures are reported as events and the entry is moved aside.
     pub(crate) async fn process_outbox(&self, conv: &Conversation) {
-        let (_, outbox, _) = self.conversation_dirs(&conv.id);
-        let dir = outbox.join("proposals");
-        let Ok(rd) = std::fs::read_dir(&dir) else {
+        let (_, outbox_path, _) = self.conversation_dirs(&conv.id);
+        // The sandbox writes the outbox: read it confined so nothing can point outside it.
+        let Ok(outbox) = Confined::open(&outbox_path) else {
             return;
         };
-        let mut files: Vec<_> = rd
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "json"))
-            .collect();
-        files.sort();
-        let done = outbox.join("processed");
-        std::fs::create_dir_all(&done).ok();
-        for file in files {
-            let parsed = std::fs::read_to_string(&file)
+        let Ok(entries) = outbox.list("proposals") else { return };
+        outbox.create_dir_all("processed").ok();
+        for entry in entries.into_iter().filter(|e| e.name.ends_with(".json")) {
+            let rel = format!("proposals/{}", entry.name);
+            let parsed = outbox
+                .read_text(&rel, 1024 * 1024)
                 .map_err(anyhow::Error::from)
                 .and_then(|t| serde_json::from_str::<OutboxItem>(&t).map_err(anyhow::Error::from));
             let kind = match &parsed {
@@ -51,7 +48,7 @@ impl Harness {
                 Ok(OutboxItem::Template { .. }) => LibraryKind::Templates,
             };
             let result = match parsed {
-                Ok(item) => self.propose_from_outbox(conv, item).await,
+                Ok(item) => self.propose_from_outbox(conv, &outbox, item).await,
                 Err(e) => Err(e.context("unreadable outbox entry")),
             };
             match result {
@@ -68,24 +65,22 @@ impl Harness {
                     })
                 }
             }
-            if let Some(name) = file.file_name() {
-                std::fs::rename(&file, done.join(name)).ok();
-            }
+            outbox.rename(&rel, &format!("processed/{}", entry.name)).ok();
         }
     }
 
-    async fn propose_from_outbox(&self, conv: &Conversation, item: OutboxItem) -> Result<Proposal> {
+    async fn propose_from_outbox(&self, conv: &Conversation, outbox: &Confined, item: OutboxItem) -> Result<Proposal> {
         let source = Some(conv.id.clone());
         match item {
             OutboxItem::Skill { content, rationale } => self.skills.propose_upsert(&content, &rationale, source).await,
             OutboxItem::Tool { name, rationale } => {
                 nucleus_skills::validate_name(&name.replace('_', "-"))?;
-                let (_, outbox, _) = self.conversation_dirs(&conv.id);
                 let report = nucleus_tools::promote_candidate(
                     &self.tools,
                     self.backend.as_ref(),
                     &conv.container,
-                    &outbox.join("tools").join(&name),
+                    outbox,
+                    &name,
                     &format!("{OUTBOX_MOUNT}/tools/{name}"),
                     &rationale,
                     source,

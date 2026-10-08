@@ -504,7 +504,20 @@ pub(crate) fn prepare_nested_mountpoints(spec: &ContainerSpec) -> Result<()> {
             && p.source.is_dir()
         {
             let rel = &target[p.target.trim_end_matches('/').len() + 1..];
-            std::fs::create_dir_all(p.source.join(rel)).with_context(|| format!("creating mount point {target}"))?;
+            let point = p.source.join(rel);
+            if std::fs::symlink_metadata(&point).is_ok() {
+                continue;
+            }
+            // A file mounted over a path needs a file as its mount point, a directory a directory.
+            let is_file_mount = spec.binds.iter().any(|b| b.target == target && b.source.is_file());
+            if is_file_mount {
+                if let Some(dir) = point.parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                std::fs::write(&point, b"").with_context(|| format!("creating mount point {target}"))?;
+            } else {
+                std::fs::create_dir_all(&point).with_context(|| format!("creating mount point {target}"))?;
+            }
         }
     }
     Ok(())
@@ -539,7 +552,28 @@ mod tests {
             volume: "v".into(),
             target: "/home/agent/cache".into(),
         }];
+        let gitfile = dir.path().join("gitfile");
+        std::fs::write(&gitfile, "gitdir: /nucleus/git\n").unwrap();
+        std::fs::write(wt.join(".git"), "gitdir: /host/path\n").unwrap();
+        spec.binds.push(BindMount {
+            source: gitfile,
+            target: "/workspace/.git".into(),
+            mode: MountMode::ReadOnly,
+        });
+        let file2 = dir.path().join("file2");
+        std::fs::write(&file2, "x").unwrap();
+        spec.binds.push(BindMount {
+            source: file2,
+            target: "/home/agent/sub/file".into(),
+            mode: MountMode::ReadOnly,
+        });
         prepare_nested_mountpoints(&spec).unwrap();
+        // Existing paths are left alone; file mounts get a file mount point.
+        assert_eq!(
+            std::fs::read_to_string(wt.join(".git")).unwrap(),
+            "gitdir: /host/path\n"
+        );
+        assert!(home.join("sub/file").is_file());
         assert!(home.join(".claude/skills").is_dir());
         assert!(home.join("cache").is_dir());
         assert!(wt.join("node_modules").is_dir());

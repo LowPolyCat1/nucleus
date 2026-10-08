@@ -8,6 +8,7 @@ pub mod caches;
 pub mod endpoint;
 #[cfg(feature = "fake")]
 pub mod fake;
+pub mod fsutil;
 mod network;
 mod types;
 

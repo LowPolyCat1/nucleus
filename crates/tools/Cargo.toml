@@ -16,4 +16,5 @@ tokio.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
+nucleus-sandbox = { workspace = true, features = ["fake"] }
 tempfile.workspace = true

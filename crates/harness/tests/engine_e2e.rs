@@ -146,3 +146,129 @@ fn current_uid() -> String {
         .unwrap()
         .to_string()
 }
+
+const GIT_TEMPLATE: &str = r#"
+name = "fake-claude"
+description = "A fake Claude CLI that uses git in the sandbox"
+mount = { mode = "readonly" }
+path_env = { PATH = ["/deps/fake-claude/bin"] }
+[build]
+command = '''
+mkdir -p bin
+cat > bin/claude <<'SH'
+#!/bin/sh
+echo '{"type":"system","subtype":"init","session_id":"g-1","tools":[],"model":"fake"}'
+cd /workspace
+git log --format=%s > /tmp/before.txt
+git status --porcelain > /tmp/status.txt
+cp /tmp/before.txt seen-log.txt
+cp /tmp/status.txt status.txt
+echo one > one.txt
+git add one.txt seen-log.txt status.txt
+git commit -q -m "agent: one"
+echo two > two.txt
+echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"g-1"}'
+SH
+chmod +x bin/claude
+'''
+"#;
+
+/// Git inside a real container: plain `git` through the `.git` pointer mount.
+#[tokio::test]
+async fn real_engine_sandbox_git() {
+    if std::env::var("NUCLEUS_ENGINE_TESTS").is_err() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    nucleus_vcs::cli::git(&repo, &["init", "-q", "-b", "main"])
+        .await
+        .unwrap();
+    commit_file(&repo, "README.md", "hi\n", "initial").await;
+    let backend = Arc::new(
+        BollardBackend::connect_default(dir.path().join("support"))
+            .await
+            .unwrap(),
+    );
+    let image = "localhost/nucleus-test-agent:latest";
+    if backend.ensure_image(image).await.is_err() {
+        build_image(
+            backend.engine(),
+            image,
+            include_str!("support/test-agent.Containerfile"),
+        )
+        .await
+        .unwrap();
+    }
+    let h = Harness::open(dir.path().join("data"), backend.clone(), Arc::new(|_| {}))
+        .await
+        .unwrap();
+    let mut settings = Settings {
+        image: image.into(),
+        ..Default::default()
+    };
+    settings
+        .provider_env
+        .insert("ANTHROPIC_API_KEY".into(), "unused".into());
+    h.update_settings(settings).await.unwrap();
+    let lib = h.library(LibraryKind::Templates);
+    let p = lib
+        .propose(NewProposal {
+            title: "fake".into(),
+            rationale: String::new(),
+            changes: vec![FileChange {
+                path: "fake-claude/template.toml".into(),
+                content: Some(GIT_TEMPLATE.into()),
+                executable: false,
+            }],
+            source: None,
+        })
+        .await
+        .unwrap();
+    lib.approve(&p.id).await.unwrap();
+    let ws = h.add_workspace(&repo, None).await.unwrap();
+    h.configure_workspace(&ws.id, vec!["fake-claude".into()], NetworkPolicy::None)
+        .await
+        .unwrap();
+    let conv = h.create_conversation(&ws.id, "main", "git").await.unwrap();
+    let result = async {
+        h.send_message(&conv.id, "first").await?;
+        let vcs = nucleus_vcs::GixVcs::open(&repo)?;
+        let log: Vec<String> = nucleus_vcs::Vcs::log(&vcs, &conv.branch, 10)
+            .await?
+            .into_iter()
+            .map(|c| c.summary)
+            .collect();
+        anyhow::ensure!(log == ["Agent turn: first", "agent: one", "initial"], "{log:?}");
+        let read = |f: &str| std::fs::read_to_string(conv.worktree.join(f)).unwrap_or_default();
+        anyhow::ensure!(
+            read("seen-log.txt") == "initial\n",
+            "sandbox saw {:?}",
+            read("seen-log.txt")
+        );
+        anyhow::ensure!(
+            read("status.txt").is_empty(),
+            "dirty sandbox index: {:?}",
+            read("status.txt")
+        );
+        // Second turn: the sandbox sees both commits of the first turn.
+        h.send_message(&conv.id, "second").await?;
+        anyhow::ensure!(
+            read("seen-log.txt") == "Agent turn: first\nagent: one\ninitial\n",
+            "sandbox saw {:?}",
+            read("seen-log.txt")
+        );
+        // The host worktree's .git still points at the host.
+        anyhow::ensure!(
+            read(".git").contains(&dir.path().canonicalize()?.to_string_lossy().to_string())
+                || read(".git").contains("worktrees"),
+            "{}",
+            read(".git")
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    h.delete_conversation(&conv.id, DeleteMode::Discard).await.unwrap();
+    result.unwrap();
+}

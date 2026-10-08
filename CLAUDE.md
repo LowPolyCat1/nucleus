@@ -51,6 +51,18 @@ None of the default stages need a container engine, an API key or a display:
 - Store proxies cannot be `structuredClone`d.
 - `tests/unit/solid-contract.test.tsx` pins the framework behaviour the UI relies on.
 
+## Security rules for the sandbox boundary
+
+- Anything a container can write (outbox, home, private git dir, worktree) is hostile input.
+- Read sandbox-written directories only through `nucleus_sandbox::fsutil::Confined` (no
+  symlink or `..` escapes); never `std::fs` on paths inside them.
+- Never run host git with a sandbox-controlled `GIT_DIR`; git setup and syncing inside the
+  sandbox runs in the container (`crates/harness/src/sandbox_git.rs`). The host only imports
+  bundles, fast-forward only.
+- Host git calls go through `nucleus_vcs::cli`, which disables hooks.
+- Nested mount points are created on the host before a container starts
+  (`prepare_nested_mountpoints`), otherwise rootful engines create them as root.
+
 ## Conventions
 
 - Rust errors are `anyhow` with context; IPC errors are the full chain as a string.
