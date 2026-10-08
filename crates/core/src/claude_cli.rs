@@ -22,7 +22,8 @@ use serde_json::Value;
 
 use crate::{AgentEvent, EventStream, LaunchSpec, LlmProvider, ProcessLauncher, ProcessOutput, TurnRequest};
 
-const PID_FILE: &str = "/tmp/nucleus-claude.pid";
+/// Per-conversation (HOME is per conversation), so cancelling never signals another process.
+const PID_FILE: &str = "${HOME:-/tmp}/.nucleus-claude.pid";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClaudeCliConfig {
@@ -111,7 +112,7 @@ impl LlmProvider for ClaudeCliProvider {
         let mut argv = vec![
             "sh".to_string(),
             "-c".into(),
-            format!("echo $$ > {PID_FILE}; exec \"$@\""),
+            format!("echo $$ > \"{PID_FILE}\"; exec \"$@\""),
             "nucleus-claude".into(),
         ];
         argv.extend(self.argv(&request));
@@ -147,7 +148,7 @@ impl LlmProvider for ClaudeCliProvider {
         let p = self
             .launcher
             .launch(LaunchSpec {
-                argv: vec!["sh".into(), "-c".into(), format!("[ -f {PID_FILE} ] && kill -INT $(cat {PID_FILE})")],
+                argv: vec!["sh".into(), "-c".into(), format!("[ -f \"{PID_FILE}\" ] && kill -INT $(cat \"{PID_FILE}\")")],
                 env: BTreeMap::new(),
                 workdir: None,
             })

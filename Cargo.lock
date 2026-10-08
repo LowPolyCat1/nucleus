@@ -1790,6 +1790,25 @@ dependencies = [
 [[package]]
 name = "nucleus-harness"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures",
+ "nucleus-core",
+ "nucleus-promotion",
+ "nucleus-sandbox",
+ "nucleus-skills",
+ "nucleus-templates",
+ "nucleus-tools",
+ "nucleus-vcs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "nucleus-promotion"
@@ -1811,6 +1830,7 @@ dependencies = [
  "async-trait",
  "bollard",
  "futures",
+ "nucleus-sandbox",
  "serde",
  "serde_json",
  "tempfile",

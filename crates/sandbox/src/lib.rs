@@ -5,6 +5,8 @@
 
 mod bollard_backend;
 pub mod caches;
+#[cfg(feature = "fake")]
+pub mod fake;
 mod network;
 mod types;
 

@@ -5,3 +5,23 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+futures.workspace = true
+nucleus-core.workspace = true
+nucleus-promotion.workspace = true
+nucleus-sandbox.workspace = true
+nucleus-skills.workspace = true
+nucleus-templates.workspace = true
+nucleus-tools.workspace = true
+nucleus-vcs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+nucleus-sandbox = { workspace = true, features = ["fake"] }

@@ -160,6 +160,18 @@ impl ExecHandle {
         Self { output, stdin, exit }
     }
 
+    /// Split into output stream, stdin and the exit future.
+    #[allow(clippy::type_complexity)]
+    pub fn into_parts(
+        self,
+    ) -> (
+        BoxStream<'static, crate::Result<ExecChunk>>,
+        Option<Pin<Box<dyn AsyncWrite + Send>>>,
+        BoxFuture<'static, crate::Result<Option<i64>>>,
+    ) {
+        (self.output, self.stdin, self.exit)
+    }
+
     /// Exit code of the process, once its output has been fully read.
     pub async fn wait(self) -> crate::Result<Option<i64>> {
         self.exit.await

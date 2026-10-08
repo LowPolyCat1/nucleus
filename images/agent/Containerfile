@@ -1,0 +1,26 @@
+# Base image for nucleus agent sandboxes.
+#
+# Contains the Claude CLI (which runs inside the sandbox and executes its tools here), node for
+# the harness MCP server and egress proxy, and common build tooling. Templates are built inside
+# this same image so native modules match its libc and architecture.
+FROM docker.io/library/node:22-bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl git jq procps ripgrep \
+      python3 python3-venv python3-pip build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+ARG CLAUDE_CODE_VERSION=2.1.295
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} pnpm@10 \
+ && npm cache clean --force
+
+# Containers run as the host user, which may not exist in /etc/passwd; make the shared
+# locations writable for any uid.
+RUN mkdir -p /home/agent /caches /deps /nucleus /workspace \
+ && chmod 1777 /home/agent /caches /workspace
+
+ENV HOME=/home/agent \
+    DISABLE_AUTOUPDATER=1 \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+WORKDIR /workspace

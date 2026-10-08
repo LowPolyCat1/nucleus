@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# In-process fake backend for tests. Provides no isolation.
+fake = []
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
@@ -16,3 +20,4 @@ tracing.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+nucleus-sandbox = { path = ".", features = ["fake"] }
