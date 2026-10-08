@@ -1850,6 +1850,18 @@ dependencies = [
 [[package]]
 name = "nucleus-tools"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "nucleus-promotion",
+ "nucleus-sandbox",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+]
 
 [[package]]
 name = "nucleus-vcs"
