@@ -216,7 +216,11 @@ mod tests {
         assert!(bad(&|s| s.limits.cpus = Some(f64::NAN)).contains("CPU"));
         assert!(bad(&|s| s.limits.pids = Some(1)).contains("process"));
         let unlimited = Settings {
-            limits: ResourceLimits { memory_mb: None, cpus: None, pids: None },
+            limits: ResourceLimits {
+                memory_mb: None,
+                cpus: None,
+                pids: None,
+            },
             ..Default::default()
         };
         unlimited.validate().unwrap();
