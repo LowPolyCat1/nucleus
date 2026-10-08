@@ -70,7 +70,7 @@ impl Settings {
             anyhow::bail!("memory limit must be between 256 MiB and 1 TiB");
         }
         if let Some(c) = self.limits.cpus
-            && !(c.is_finite() && c >= 0.1 && c <= 1024.0)
+            && !(c.is_finite() && (0.1..=1024.0).contains(&c))
         {
             anyhow::bail!("CPU limit must be between 0.1 and 1024 cores");
         }
@@ -215,11 +215,9 @@ mod tests {
         assert!(bad(&|s| s.limits.cpus = Some(0.0)).contains("CPU"));
         assert!(bad(&|s| s.limits.cpus = Some(f64::NAN)).contains("CPU"));
         assert!(bad(&|s| s.limits.pids = Some(1)).contains("process"));
-        let mut unlimited = Settings::default();
-        unlimited.limits = ResourceLimits {
-            memory_mb: None,
-            cpus: None,
-            pids: None,
+        let unlimited = Settings {
+            limits: ResourceLimits { memory_mb: None, cpus: None, pids: None },
+            ..Default::default()
         };
         unlimited.validate().unwrap();
         for m in PERMISSION_MODES {

@@ -8,7 +8,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, anyhow, bail};
-use nucleus_vcs::cli::git;
 use nucleus_vcs::{CommitInfo, FileDiff, GixVcs, MergeOutcome, Vcs};
 use serde::{Deserialize, Serialize};
 
@@ -223,7 +222,7 @@ impl Library {
             args.extend(["-m", "1"]);
         }
         args.push(commit);
-        git(&root, &args).await?;
+        nucleus_vcs::cli::git_with_identity(&root, &args).await?;
         self.vcs.resolve(MAIN).await
     }
 

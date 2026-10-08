@@ -5,7 +5,7 @@ use anyhow::{Context, anyhow, bail};
 use async_trait::async_trait;
 use gix::bstr::ByteSlice;
 
-use crate::cli::{git, git_output};
+use crate::cli::{git, git_output, git_with_identity};
 use crate::diff::render;
 use crate::strategy::BranchStrategy;
 use crate::{
@@ -182,19 +182,30 @@ impl Vcs for GixVcs {
     }
 
     async fn create_branch(&self, name: &str, start: &str) -> Result<()> {
-        let (name, start) = (name.to_string(), start.to_string());
-        self.blocking(move |repo| {
-            let id = resolve_id(&repo, &start)?;
-            repo.reference(
-                format!("refs/heads/{name}").as_str(),
-                id,
-                gix::refs::transaction::PreviousValue::MustNotExist,
-                format!("branch: Created from {start}"),
-            )
-            .map_err(|e| anyhow!("cannot create branch {name}: {e}"))?;
-            Ok(())
-        })
-        .await
+        // Resolve with gix (peeling tags), create with the CLI: writing the reflog needs an
+        // identity, which the CLI falls back on when none is configured.
+        let id = self.resolve(start).await?;
+        let full = format!("refs/heads/{name}");
+        if git_output(&self.workdir, &["check-ref-format", &full])
+            .await
+            .map(|o| !o.status.success())
+            .unwrap_or(true)
+        {
+            bail!("invalid branch name {name:?}");
+        }
+        let out = git_with_identity(
+            &self.workdir,
+            &[
+                "update-ref",
+                "-m",
+                &format!("branch: Created from {start}"),
+                &full,
+                &id,
+                "",
+            ],
+        )
+        .await;
+        out.map(drop).map_err(|e| anyhow!("cannot create branch {name}: {e:#}"))
     }
 
     async fn delete_branch(&self, name: &str) -> Result<()> {
@@ -409,7 +420,10 @@ impl Vcs for GixVcs {
         .chain(self.worktrees().await?)
         .find(|w| w.branch.as_deref() == Some(into));
         if let Some(wt) = checked_out {
-            let out = git_output(&wt.path, &["merge", "--no-edit", "-m", message, &from_id]).await?;
+            let mut args = crate::cli::identity_args(&wt.path).await;
+            args.extend(["merge", "--no-edit", "-m", message, &from_id].map(String::from));
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            let out = git_output(&wt.path, &refs).await?;
             if !out.status.success() {
                 let conflicts = git(&wt.path, &["diff", "--name-only", "--diff-filter=U"])
                     .await
@@ -431,7 +445,7 @@ impl Vcs for GixVcs {
         }
         let full = format!("refs/heads/{into}");
         if base.as_deref() == Some(into_id.as_str()) {
-            git(&self.workdir, &["update-ref", &full, &from_id, &into_id]).await?;
+            git_with_identity(&self.workdir, &["update-ref", "-m", message, &full, &from_id, &into_id]).await?;
             return Ok(MergeOutcome::FastForward { commit: from_id });
         }
         // Not checked out anywhere: merge without touching any working copy.
@@ -450,25 +464,12 @@ impl Vcs for GixVcs {
         if !out.status.success() {
             bail!("merge-tree failed: {}", String::from_utf8_lossy(&out.stderr).trim());
         }
-        let commit = git(
+        let commit = git_with_identity(
             &self.workdir,
-            &[
-                "-c",
-                "user.name=nucleus",
-                "-c",
-                "user.email=nucleus@localhost",
-                "commit-tree",
-                &tree,
-                "-p",
-                &into_id,
-                "-p",
-                &from_id,
-                "-m",
-                message,
-            ],
+            &["commit-tree", &tree, "-p", &into_id, "-p", &from_id, "-m", message],
         )
         .await?;
-        git(&self.workdir, &["update-ref", &full, &commit, &into_id]).await?;
+        git_with_identity(&self.workdir, &["update-ref", "-m", message, &full, &commit, &into_id]).await?;
         Ok(MergeOutcome::Merged { commit })
     }
 }

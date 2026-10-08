@@ -32,3 +32,29 @@ pub async fn git_output(dir: &Path, args: &[&str]) -> crate::Result<std::process
         .await
         .with_context(|| format!("failed to run git {}", args.join(" ")))
 }
+
+/// `-c user.name=… -c user.email=…` fallbacks for operations that write commits or reflogs,
+/// added only when the repository (or the user's config) has no identity, so the user's own
+/// identity is used whenever it exists.
+pub async fn identity_args(dir: &Path) -> Vec<String> {
+    let mut args = Vec::new();
+    for (key, fallback) in [("user.name", "nucleus"), ("user.email", "nucleus@localhost")] {
+        let set = git_output(dir, &["config", "--get", key])
+            .await
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !set {
+            args.push("-c".to_string());
+            args.push(format!("{key}={fallback}"));
+        }
+    }
+    args
+}
+
+/// Run git with the identity fallbacks from [`identity_args`].
+pub async fn git_with_identity(dir: &Path, args: &[&str]) -> crate::Result<String> {
+    let mut all = identity_args(dir).await;
+    all.extend(args.iter().map(|a| a.to_string()));
+    let refs: Vec<&str> = all.iter().map(String::as_str).collect();
+    git(dir, &refs).await
+}
