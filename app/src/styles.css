@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-zinc-950 text-zinc-200 antialiased;
+}
+
+/* Thin scrollbars that match the dark theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-zinc-700) transparent;
+}

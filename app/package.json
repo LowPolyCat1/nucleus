@@ -1,0 +1,44 @@
+{
+  "name": "nucleus-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@solidjs/signals": "2.0.0-rc.10",
+    "@solidjs/web": "2.0.0-rc.10",
+    "@tauri-apps/api": "2.12.1",
+    "solid-js": "2.0.0-rc.10"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@solidjs/testing-library": "1.0.0-beta.3",
+    "@solidjs/vite-plugin": "3.0.0-next.46",
+    "@tailwindcss/vite": "4.3.3",
+    "@tauri-apps/cli": "2.12.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "22.19.1",
+    "jsdom": "27.0.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  },
+  "overrides": {
+    "@solidjs/signals": "2.0.0-rc.10",
+    "@solidjs/compiler": "2.0.0-rc.10",
+    "@solidjs/babel-plugin": "2.0.0-rc.10",
+    "solid-js": "2.0.0-rc.10",
+    "@solidjs/web": "2.0.0-rc.10"
+  }
+}
