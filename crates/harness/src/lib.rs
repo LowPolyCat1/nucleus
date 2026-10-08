@@ -448,6 +448,7 @@ impl Harness {
             session_id: None,
             created: chrono::Utc::now().timestamp(),
             status: ConversationStatus::Idle,
+            last_turn_skills: Vec::new(),
         };
         let setup = async {
             vcs.create_branch(&branch, base_branch).await?;
@@ -685,6 +686,8 @@ impl Harness {
         };
         tracing::info!(conversation = %conv.id, is_error = summary.is_error, exit_code = ?summary.exit_code, "turn finished");
         self.append_transcript(&conv.id, &summary.entries)?;
+        used_skills.sort();
+        used_skills.dedup();
         for skill in &used_skills {
             self.skills.usage().record_use(skill).ok();
             let outcome = if summary.is_error {
@@ -726,6 +729,7 @@ impl Harness {
             let c = s.conversation_mut(&conv.id)?;
             c.session_id = session;
             c.status = status;
+            c.last_turn_skills = used_skills;
             Ok(())
         })
         .await?;
@@ -757,12 +761,24 @@ impl Harness {
         }
     }
 
-    /// User feedback on the last turn; marks the skills it used.
-    pub async fn rate_skills(&self, skills: &[String], outcome: Outcome) -> Result<()> {
-        for s in skills {
-            self.skills.usage().record_outcome(s, outcome)?;
+    /// The user says the last turn's result was wrong: the skills it used get a negative
+    /// outcome instead of the success recorded automatically. Each turn can be rated once.
+    /// Returns the affected skills.
+    pub async fn mark_last_turn_wrong(&self, conversation_id: &str) -> Result<Vec<String>> {
+        let skills = self
+            .mutate(|s| {
+                Ok(std::mem::take(
+                    &mut s.conversation_mut(conversation_id)?.last_turn_skills,
+                ))
+            })
+            .await?;
+        for skill in &skills {
+            self.skills.usage().mark_wrong(skill)?;
         }
-        Ok(())
+        if !skills.is_empty() {
+            tracing::info!(conversation = %conversation_id, ?skills, "last turn marked as wrong");
+        }
+        Ok(skills)
     }
 
     fn append_transcript(&self, id: &str, entries: &[TranscriptEntry]) -> Result<()> {

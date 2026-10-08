@@ -93,23 +93,60 @@ impl Harness {
                 .await?;
                 Ok(report.proposal)
             }
-            OutboxItem::Template { manifest, rationale } => {
-                let m = TemplateManifest::parse(&manifest)?;
-                let exists = self.templates.root().join(&m.name).exists();
-                self.templates
-                    .propose(NewProposal {
-                        title: format!("{} template {}", if exists { "Update" } else { "Add" }, m.name),
-                        rationale,
-                        changes: vec![FileChange {
-                            path: format!("{}/{}", m.name, nucleus_templates::MANIFEST_FILE),
-                            content: Some(manifest),
-                            executable: false,
-                        }],
-                        source,
-                    })
-                    .await
-            }
+            OutboxItem::Template { manifest, rationale } => self.propose_template(&manifest, &rationale, source).await,
         }
+    }
+
+    /// Propose a new or changed template manifest. Validated before it becomes a proposal.
+    pub async fn propose_template(&self, manifest: &str, rationale: &str, source: Option<String>) -> Result<Proposal> {
+        let m = TemplateManifest::parse(manifest)?;
+        let exists = self.templates.root().join(&m.name).exists();
+        self.templates
+            .propose(NewProposal {
+                title: format!("{} template {}", if exists { "Update" } else { "Add" }, m.name),
+                rationale: rationale.to_string(),
+                changes: vec![FileChange {
+                    path: format!("{}/{}", m.name, nucleus_templates::MANIFEST_FILE),
+                    content: Some(manifest.to_string()),
+                    executable: false,
+                }],
+                source,
+            })
+            .await
+    }
+
+    /// Propose a skill written or edited by the user.
+    pub async fn propose_skill(&self, content: &str, rationale: &str) -> Result<Proposal> {
+        self.skills.propose_upsert(content, rationale, None).await
+    }
+
+    /// Propose removing a skill, e.g. one flagged as unreliable.
+    pub async fn propose_skill_removal(&self, name: &str, rationale: &str) -> Result<Proposal> {
+        self.skills.propose_delete(name, rationale, None).await
+    }
+
+    /// Approved tools.
+    pub fn tools(&self) -> Vec<nucleus_tools::ToolManifest> {
+        nucleus_tools::load_registry(self.tools.root())
+            .into_iter()
+            .map(|t| t.manifest().clone())
+            .collect()
+    }
+
+    /// Current SKILL.md of an approved skill.
+    pub fn skill_source(&self, name: &str) -> Result<String> {
+        nucleus_skills::validate_name(name)?;
+        std::fs::read_to_string(self.skills.library().root().join(name).join(nucleus_skills::SKILL_FILE))
+            .map_err(|_| anyhow::anyhow!("no skill named {name}"))
+    }
+
+    /// Current template.toml of an approved template.
+    pub fn template_source(&self, name: &str) -> Result<String> {
+        if name.is_empty() || name.contains(['/', '\\', '.']) {
+            anyhow::bail!("invalid template name {name:?}");
+        }
+        std::fs::read_to_string(self.templates.root().join(name).join(nucleus_templates::MANIFEST_FILE))
+            .map_err(|_| anyhow::anyhow!("no template named {name}"))
     }
 
     /// Pending proposals across all libraries, newest first.

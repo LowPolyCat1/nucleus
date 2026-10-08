@@ -22,6 +22,7 @@ nucleus-sandbox.workspace = true
 nucleus-skills.workspace = true
 nucleus-core.workspace = true
 nucleus-templates.workspace = true
+nucleus-tools.workspace = true
 nucleus-vcs.workspace = true
 serde.workspace = true
 serde_json.workspace = true

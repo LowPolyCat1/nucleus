@@ -129,6 +129,9 @@ pub struct Conversation {
     pub session_id: Option<String>,
     pub created: i64,
     pub status: ConversationStatus,
+    /// Skills the last turn used, until the user rates that turn.
+    #[serde(default)]
+    pub last_turn_skills: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

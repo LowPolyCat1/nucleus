@@ -232,3 +232,50 @@ pub async fn recent_logs(
 pub async fn restart_sandbox(core: S<'_>, id: String) -> CmdResult<()> {
     core.harness().await?.restart_container(&id).await.map_err(err)
 }
+
+#[tauri::command]
+pub async fn mark_last_turn_wrong(core: S<'_>, id: String) -> CmdResult<Vec<String>> {
+    core.harness().await?.mark_last_turn_wrong(&id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn propose_skill(core: S<'_>, content: String, rationale: String) -> CmdResult<Proposal> {
+    core.harness()
+        .await?
+        .propose_skill(&content, &rationale)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn propose_skill_removal(core: S<'_>, name: String, rationale: String) -> CmdResult<Proposal> {
+    core.harness()
+        .await?
+        .propose_skill_removal(&name, &rationale)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn propose_template(core: S<'_>, manifest: String, rationale: String) -> CmdResult<Proposal> {
+    core.harness()
+        .await?
+        .propose_template(&manifest, &rationale, None)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn tools(core: S<'_>) -> CmdResult<Vec<nucleus_tools::ToolManifest>> {
+    Ok(core.harness().await?.tools())
+}
+
+#[tauri::command]
+pub async fn skill_source(core: S<'_>, name: String) -> CmdResult<String> {
+    core.harness().await?.skill_source(&name).map_err(err)
+}
+
+#[tauri::command]
+pub async fn template_source(core: S<'_>, name: String) -> CmdResult<String> {
+    core.harness().await?.template_source(&name).map_err(err)
+}

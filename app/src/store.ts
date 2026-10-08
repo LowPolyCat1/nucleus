@@ -329,6 +329,22 @@ export function createApp(backend: Backend, options: { toastMs?: number } = {}) 
       await attempt(() => backend.reject(kind, id), "Proposal rejected");
       await attempt(refreshProposals);
     },
+    async markLastTurnWrong(id: string) {
+      const skills = await attempt(() => backend.markLastTurnWrong(id));
+      if (skills) toast("info", skills.length ? `Recorded a bad outcome for ${skills.join(", ")}` : "That turn used no skills");
+      await attempt(refresh);
+      bumpLibrary();
+    },
+    /** Submit a user-authored proposal; returns true when it was created. */
+    async propose(kind: "skill" | "skill-removal" | "template", text: string, rationale: string): Promise<boolean> {
+      const created = await attempt(() =>
+        kind === "skill" ? backend.proposeSkill(text, rationale) : kind === "template" ? backend.proposeTemplate(text, rationale) : backend.proposeSkillRemoval(text, rationale),
+      );
+      if (!created) return false;
+      toast("success", `Proposal created: ${created.title}. Review it under Proposals.`);
+      await attempt(refreshProposals);
+      return true;
+    },
     async revert(kind: LibraryKind, commit: string) {
       await attempt(() => backend.revert(kind, commit), "Change reverted");
       bumpLibrary();

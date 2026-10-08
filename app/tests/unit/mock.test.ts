@@ -146,3 +146,53 @@ describe("MockBackend", () => {
     expect(await m.diff(ws.id, "main", "main")).toEqual([]);
   });
 });
+
+describe("library authoring in the mock", () => {
+  test("template TOML round-trips and validates", async () => {
+    const { parseTemplateToml, templateToToml } = await import("../../src/api/mock");
+    const m = new MockBackend({ delayMs: 0 });
+    for (const t of await m.availableTemplates()) {
+      const back = parseTemplateToml(templateToToml(t));
+      expect(back.name).toBe(t.name);
+      expect(back.mount).toEqual(t.mount);
+      expect(back.env).toEqual(t.env);
+    }
+    expect(() => parseTemplateToml('name = "a b"')).toThrow(/letters, digits/);
+    expect(() => parseTemplateToml('name = "a"\n[build]\ncommand = "x"')).toThrow(/mount/);
+    expect(() => parseTemplateToml('name = "a"\nmount = { mode = "worktree", path = "../x" }\n[build]\ncommand = "x"')).toThrow(/relative/);
+    expect(() => parseTemplateToml('name = "a"\nmount = { mode = "readonly" }')).toThrow(/build/);
+  });
+
+  test("propose skill, removal, template; mark wrong", async () => {
+    const m = new MockBackend({ delayMs: 0 });
+    await expect(m.proposeSkill("nope", "r")).rejects.toContain("frontmatter");
+    await expect(m.proposeSkill("---\nname: Bad\ndescription: d\n---\n", "r")).rejects.toContain("lowercase");
+    const p = await m.proposeSkill("---\nname: new-one\ndescription: d\n---\nbody\n", "r");
+    expect(p.title).toBe("Add skill new-one");
+    expect((await m.proposeSkill("---\nname: rust-style\ndescription: d\n---\n", "r")).title).toBe("Update skill rust-style");
+    await expect(m.proposeSkillRemoval("missing", "r")).rejects.toContain("no skill");
+    expect((await m.proposeSkillRemoval("rust-style", "r")).title).toBe("Remove skill rust-style");
+    const t = await m.proposeTemplate('name = "go"\nmount = { mode = "readonly" }\n[build]\ncommand = "true"\n', "r");
+    expect(t.title).toBe("Add template go");
+    await m.approve("templates", t.id);
+    expect((await m.availableTemplates()).map((x) => x.name)).toContain("go");
+    expect(await m.templateSource("go")).toContain('name = "go"');
+    await expect(m.templateSource("nope")).rejects.toContain("no template");
+    await expect(m.skillSource("nope")).rejects.toContain("no skill");
+    expect((await m.tools()).map((x) => x.name)).toEqual(["word-count"]);
+
+    await withKeyMock(m);
+    const [conv] = (await m.state()).conversations;
+    await m.sendMessage(conv.id, "x");
+    expect((await m.state()).conversations[0].last_turn_skills).toEqual(["rust-style"]);
+    const before = (await m.skills()).find((s) => s.name === "rust-style")!.stats;
+    expect(await m.markLastTurnWrong(conv.id)).toEqual(["rust-style"]);
+    const after = (await m.skills()).find((s) => s.name === "rust-style")!.stats;
+    expect([after.successes, after.negative]).toEqual([before.successes - 1, before.negative + 1]);
+    expect(await m.markLastTurnWrong(conv.id)).toEqual([]);
+  });
+});
+
+async function withKeyMock(m: MockBackend) {
+  await m.updateSettings({ ...(await m.state()).settings, provider_env: { ANTHROPIC_API_KEY: "k" } });
+}

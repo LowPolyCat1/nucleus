@@ -72,6 +72,13 @@ pub fn run() {
             commands::build_agent_image,
             commands::recent_logs,
             commands::restart_sandbox,
+            commands::mark_last_turn_wrong,
+            commands::propose_skill,
+            commands::propose_skill_removal,
+            commands::propose_template,
+            commands::tools,
+            commands::skill_source,
+            commands::template_source,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nucleus");

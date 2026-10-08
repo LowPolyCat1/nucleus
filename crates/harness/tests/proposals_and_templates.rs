@@ -249,3 +249,79 @@ async fn overlay_templates_work_on_podman() {
         MountMode::Overlay
     );
 }
+
+#[tokio::test]
+async fn user_authored_proposals_and_library_listing() {
+    let f = fixture(Engine::Docker).await;
+    let h = &f.harness;
+
+    // Skills: invalid content is rejected, valid content becomes a proposal, edits are updates.
+    assert!(h.propose_skill("no frontmatter", "x").await.is_err());
+    let content = "---\nname: style\ndescription: House style\n---\nUse tabs.\n";
+    let p = h.propose_skill(content, "team rule").await.unwrap();
+    assert_eq!(p.title, "Add skill style");
+    assert_eq!(p.source, None);
+    h.approve(LibraryKind::Skills, &p.id).await.unwrap();
+    assert_eq!(h.skill_source("style").unwrap(), content);
+    assert!(h.skill_source("../etc").is_err());
+    assert!(h.skill_source("missing").is_err());
+    let upd = h
+        .propose_skill(&content.replace("tabs", "spaces"), "changed")
+        .await
+        .unwrap();
+    assert_eq!(upd.title, "Update skill style");
+    h.reject(LibraryKind::Skills, &upd.id).await.unwrap();
+
+    // Removal.
+    assert!(h.propose_skill_removal("missing", "x").await.is_err());
+    let rm = h.propose_skill_removal("style", "often wrong").await.unwrap();
+    assert_eq!(rm.title, "Remove skill style");
+    h.approve(LibraryKind::Skills, &rm.id).await.unwrap();
+    assert!(h.skills().list().unwrap().is_empty());
+
+    // Templates.
+    assert!(h.propose_template("name = \"bad name\"", "x", None).await.is_err());
+    let toml = "name = \"py\"\nmount = { mode = \"readonly\" }\n[build]\ncommand = \"true\"\n";
+    let t = h.propose_template(toml, "deps", None).await.unwrap();
+    assert_eq!(t.title, "Add template py");
+    h.approve(LibraryKind::Templates, &t.id).await.unwrap();
+    assert_eq!(h.template_source("py").unwrap(), toml);
+    assert!(h.template_source("../py").is_err());
+    assert!(h.template_source("nope").is_err());
+    assert_eq!(h.available_templates()[0].name, "py");
+
+    // Tools listing.
+    assert!(h.tools().is_empty());
+}
+
+#[tokio::test]
+async fn marking_a_turn_wrong_penalises_its_skills_once() {
+    let f = fixture(Engine::Docker).await;
+    let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
+    // The fake CLI calls the Skill tool for rust-tests on every edit turn.
+    f.harness.send_message(&conv.id, "x").await.unwrap();
+    let state = f.harness.snapshot().await;
+    assert_eq!(
+        state.conversation(&conv.id).unwrap().last_turn_skills,
+        vec!["rust-tests"]
+    );
+    let stats = f.harness.skills().usage().stats("rust-tests");
+    assert_eq!((stats.successes, stats.negative), (1, 0));
+
+    assert_eq!(
+        f.harness.mark_last_turn_wrong(&conv.id).await.unwrap(),
+        vec!["rust-tests"]
+    );
+    let stats = f.harness.skills().usage().stats("rust-tests");
+    assert_eq!((stats.successes, stats.negative), (0, 1));
+    // Second rating of the same turn does nothing.
+    assert!(f.harness.mark_last_turn_wrong(&conv.id).await.unwrap().is_empty());
+    assert_eq!(f.harness.skills().usage().stats("rust-tests").negative, 1);
+
+    // A turn without skills leaves nothing to rate.
+    f.mode("noop");
+    f.harness.send_message(&conv.id, "y").await.unwrap();
+    assert!(f.harness.mark_last_turn_wrong(&conv.id).await.unwrap().is_empty());
+    assert!(f.harness.mark_last_turn_wrong("missing").await.is_err());
+}

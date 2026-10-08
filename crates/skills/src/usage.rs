@@ -69,6 +69,14 @@ impl UsageStore {
         })
     }
 
+    /// Turn one recorded success into a negative outcome (the user said the result was wrong).
+    pub fn mark_wrong(&self, name: &str) -> crate::Result<()> {
+        self.update(name, |s| {
+            s.successes = s.successes.saturating_sub(1);
+            s.negative += 1;
+        })
+    }
+
     fn update(&self, name: &str, f: impl FnOnce(&mut SkillStats)) -> crate::Result<()> {
         let mut data = self.data.lock().unwrap();
         f(data.entry(name.to_string()).or_default());

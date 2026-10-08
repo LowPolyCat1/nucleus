@@ -20,6 +20,7 @@ import type {
   SkillSummary,
   TemplateManifest,
   TemplateStatus,
+  ToolManifest,
   TranscriptEntry,
   TurnSummary,
   Workspace,
@@ -67,6 +68,15 @@ export interface Backend {
   history(kind: LibraryKind, limit: number): Promise<CommitInfo[]>;
   revert(kind: LibraryKind, commit: string): Promise<string>;
   skills(): Promise<SkillSummary[]>;
+  tools(): Promise<ToolManifest[]>;
+  skillSource(name: string): Promise<string>;
+  templateSource(name: string): Promise<string>;
+  /** User-authored proposals; they go through review like the agent's. */
+  proposeSkill(content: string, rationale: string): Promise<Proposal>;
+  proposeSkillRemoval(name: string, rationale: string): Promise<Proposal>;
+  proposeTemplate(manifest: string, rationale: string): Promise<Proposal>;
+  /** Record that the last turn's result was wrong; returns the skills it penalised. */
+  markLastTurnWrong(id: string): Promise<string[]>;
 
   cleanupOrphans(): Promise<CleanupReport>;
   buildAgentImage(): Promise<string>;

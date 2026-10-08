@@ -19,6 +19,8 @@ import type {
   Settings,
   SkillSummary,
   TemplateManifest,
+  SkillStats,
+  ToolManifest,
   TranscriptEntry,
   TurnSummary,
   Workspace,
@@ -116,6 +118,48 @@ const TEMPLATES: TemplateManifest[] = [
   },
 ];
 
+/** Serialise a manifest as template.toml (the subset the mock needs). */
+export function templateToToml(t: TemplateManifest): string {
+  const inline = (o: Record<string, string | string[]>) =>
+    `{ ${Object.entries(o)
+      .map(([k, v]) => `${k} = ${Array.isArray(v) ? `[${v.map((x) => JSON.stringify(x)).join(", ")}]` : JSON.stringify(v)}`)
+      .join(", ")} }`;
+  const mount = t.mount.mode === "worktree" ? `{ mode = "worktree", path = ${JSON.stringify(t.mount.path)} }` : `{ mode = "${t.mount.mode}" }`;
+  const lines = [`name = ${JSON.stringify(t.name)}`, `description = ${JSON.stringify(t.description)}`, `mount = ${mount}`];
+  if (Object.keys(t.env).length) lines.push(`env = ${inline(t.env)}`);
+  if (Object.keys(t.path_env).length) lines.push(`path_env = ${inline(t.path_env)}`);
+  lines.push("[build]");
+  if (t.build.lockfiles.length) lines.push(`lockfiles = [${t.build.lockfiles.map((l) => JSON.stringify(l)).join(", ")}]`);
+  lines.push(`command = ${JSON.stringify(t.build.command)}`);
+  if (t.build.network.length) lines.push(`network = [${t.build.network.map((l) => JSON.stringify(l)).join(", ")}]`);
+  return lines.join("\n") + "\n";
+}
+
+/** Parse the template.toml subset written by hand in the UI. Throws a message like the Rust side. */
+export function parseTemplateToml(text: string): TemplateManifest {
+  const str = (key: string) => new RegExp(`^${key}\\s*=\\s*"([^"]*)"`, "m").exec(text)?.[1];
+  const name = str("name");
+  if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) throw `template name ${JSON.stringify(name ?? "")} must be non-empty and use only letters, digits, '-' and '_'`;
+  const mode = /mount\s*=\s*\{[^}]*mode\s*=\s*"(readonly|overlay|worktree)"/.exec(text)?.[1];
+  if (!mode) throw "TOML parse error: missing field `mount`";
+  const path = /mount\s*=\s*\{[^}]*path\s*=\s*"([^"]*)"/.exec(text)?.[1];
+  if (mode === "worktree" && (!path || path.startsWith("/") || path.includes(".."))) throw `worktree mount path ${JSON.stringify(path ?? "")} must be a plain relative path`;
+  const command = /^command\s*=\s*"([^"]*)"/m.exec(text)?.[1];
+  if (!/^\[build\]/m.test(text) || command === undefined) throw "TOML parse error: missing field `build`";
+  const table = (key: string): Record<string, string> => {
+    const body = new RegExp(`^${key}\\s*=\\s*\\{([^}]*)\\}`, "m").exec(text)?.[1] ?? "";
+    return Object.fromEntries([...body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2]]));
+  };
+  return {
+    name,
+    description: str("description") ?? "",
+    mount: mode === "worktree" ? { mode, path: path! } : { mode: mode as "readonly" | "overlay" },
+    env: table("env"),
+    path_env: {},
+    build: { image: null, lockfiles: [], command, workdir: null, network: [] },
+  };
+}
+
 interface PendingProposal extends Proposal {
   files: Record<string, string | null>;
 }
@@ -145,11 +189,14 @@ export class MockBackend implements Backend {
   private running = new Map<string, { cancelled: boolean }>();
   private builtTemplates = new Set<string>();
   logs: LogEntry[] = [];
+  skillStats = new Map<string, SkillStats>();
   /** Every call, for assertions: `[method, args]`. */
   calls: [string, unknown[]][] = [];
 
   constructor(options: MockOptions = {}) {
     this.options = { delayMs: options.delayMs ?? 30, seed: options.seed ?? true, engine: options.engine === undefined ? "podman" : options.engine, initError: options.initError ?? null };
+    // The template library always has a few entries; workspaces and conversations are demo data.
+    this.libraries.templates.files = Object.fromEntries(TEMPLATES.map((t) => [`${t.name}/template.toml`, templateToToml(t)]));
     if (this.options.seed) this.seed();
   }
 
@@ -233,9 +280,17 @@ export class MockBackend implements Backend {
     this.addPending("tools", "Add tool count-lines", "Counts lines per file.\n\nTest passed in the sandbox:\nok", conv.id, {
       "count-lines/tool.toml": 'name = "count-lines"\ndescription = "Count lines"\nrun = "wc -l"\ntest = "true"\n',
     });
-    this.libraries.templates.files = Object.fromEntries(TEMPLATES.map((t) => [`${t.name}/template.toml`, JSON.stringify(t)]));
+    this.libraries.tools.files["word-count/tool.toml"] = 'name = "word-count"\ndescription = "Count words in a file"\nrun = "wc -w"\ntest = "echo a b | wc -w | grep -q 2"\ntimeout_secs = 30\n';
+    this.skillStats.set("rust-style", { uses: 5, successes: 1, failures: 3, negative: 1, last_used: now() - 3600 });
     this.libraries.skills.files["rust-style/SKILL.md"] = "---\nname: rust-style\ndescription: House Rust style\n---\n";
     this.libraries.skills.history.push(this.libCommit("Add skill rust-style"));
+  }
+
+  private templateManifests(): TemplateManifest[] {
+    return Object.entries(this.libraries.templates.files)
+      .filter(([p]) => p.endsWith("/template.toml"))
+      .map(([, text]) => parseTemplateToml(text))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   private libCommit(summary: string): MockCommit {
@@ -313,6 +368,7 @@ export class MockBackend implements Backend {
       session_id: null,
       created: now(),
       status: "idle",
+      last_turn_skills: [],
     };
     repo.branches.set(conv.branch, start);
     this.conversations.push(conv);
@@ -466,7 +522,7 @@ export class MockBackend implements Backend {
       if (!ws) throw `no workspace ${wid}`;
       const seen = new Map<string, string>();
       for (const name of templates) {
-        const t = TEMPLATES.find((t) => t.name === name);
+        const t = this.templateManifests().find((t) => t.name === name);
         if (!t) throw `reading templates/${name}/template.toml: not found`;
         for (const k of Object.keys(t.env)) {
           if (seen.has(k)) throw `templates ${seen.get(k)} and ${name} both set ${k}`;
@@ -481,7 +537,7 @@ export class MockBackend implements Backend {
   }
 
   availableTemplates() {
-    return this.guard("availableTemplates", [], () => clone(TEMPLATES));
+    return this.guard("availableTemplates", [], () => this.templateManifests());
   }
 
   templateStatus(wid: string) {
@@ -489,7 +545,7 @@ export class MockBackend implements Backend {
       const ws = this.workspaces.find((w) => w.id === wid);
       if (!ws) throw `no workspace ${wid}`;
       return ws.templates.map((name) => {
-        const t = TEMPLATES.find((t) => t.name === name);
+        const t = this.templateManifests().find((t) => t.name === name);
         return { name, description: t?.description ?? "", fresh: this.builtTemplates.has(`${wid}/${name}`), identity: `${name}-0123456789ab`, error: null };
       });
     });
@@ -651,6 +707,13 @@ export class MockBackend implements Backend {
         }
       }
       c.session_id = session;
+      if (!isError) {
+        const st = this.skillStats.get("rust-style") ?? { uses: 0, successes: 0, failures: 0, negative: 0, last_used: null };
+        this.skillStats.set("rust-style", { ...st, uses: st.uses + 1, successes: st.successes + 1, last_used: now() });
+        c.last_turn_skills = ["rust-style"];
+      } else {
+        c.last_turn_skills = [];
+      }
       this.transcripts.get(cid)?.push(...entries);
       this.setStatus(cid, isError ? "error" : "idle");
       return { session_id: session, is_error: isError, cost_usd: isError ? null : 0.0123, exit_code: isError ? 1 : 0, entries };
@@ -765,11 +828,79 @@ export class MockBackend implements Backend {
           const name = path.split("/")[0];
           const description = /description:\s*(.*)/.exec(text)?.[1] ?? "";
           const when = /when_to_use:\s*(.*)/.exec(text)?.[1] ?? null;
-          const harmful = name === "rust-style";
-          return { name, description, when_to_use: when, stats: harmful ? { uses: 5, successes: 1, failures: 3, negative: 1, last_used: now() - 3600 } : { uses: 0, successes: 0, failures: 0, negative: 0, last_used: null } };
+          return { name, description, when_to_use: when, stats: { ...(this.skillStats.get(name) ?? { uses: 0, successes: 0, failures: 0, negative: 0, last_used: null }) } };
         })
         .sort((a, b) => a.name.localeCompare(b.name)),
     );
+  }
+
+  tools() {
+    return this.guard("tools", [], (): ToolManifest[] =>
+      Object.entries(this.libraries.tools.files)
+        .filter(([p]) => p.endsWith("/tool.toml"))
+        .map(([, text]) => {
+          const get = (k: string) => new RegExp(`^${k}\\s*=\\s*"([^"]*)"`, "m").exec(text)?.[1];
+          return { name: get("name") ?? "", description: get("description") ?? "", run: get("run") ?? "", test: get("test") ?? null, timeout_secs: Number(/^timeout_secs\s*=\s*(\d+)/m.exec(text)?.[1] ?? 120) };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  }
+
+  skillSource(name: string) {
+    return this.guard("skillSource", [name], () => {
+      const text = this.libraries.skills.files[`${name}/SKILL.md`];
+      if (text === undefined) throw `no skill named ${name}`;
+      return text;
+    });
+  }
+
+  templateSource(name: string) {
+    return this.guard("templateSource", [name], () => {
+      const text = this.libraries.templates.files[`${name}/template.toml`];
+      if (text === undefined) throw `no template named ${name}`;
+      return text;
+    });
+  }
+
+  proposeSkill(content: string, rationale: string) {
+    return this.guard("proposeSkill", [content, rationale], () => {
+      const m = /^---\n([\s\S]*?)\n---/.exec(content);
+      if (!m) throw "SKILL.md must start with '---' frontmatter";
+      const name = /^name:\s*(.+)$/m.exec(m[1])?.[1].trim();
+      const description = /^description:\s*(.+)$/m.exec(m[1])?.[1].trim();
+      if (!name || !description) throw "frontmatter needs `name` and `description`";
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw `skill name ${JSON.stringify(name)} must be lowercase letters, digits and '-', at most 64 characters`;
+      const exists = this.libraries.skills.files[`${name}/SKILL.md`] !== undefined;
+      return stripProposal(this.addPending("skills", `${exists ? "Update" : "Add"} skill ${name}`, rationale, null, { [`${name}/SKILL.md`]: content }));
+    });
+  }
+
+  proposeSkillRemoval(name: string, rationale: string) {
+    return this.guard("proposeSkillRemoval", [name, rationale], () => {
+      if (this.libraries.skills.files[`${name}/SKILL.md`] === undefined) throw `no skill named ${name}`;
+      return stripProposal(this.addPending("skills", `Remove skill ${name}`, rationale, null, { [`${name}/SKILL.md`]: null }));
+    });
+  }
+
+  proposeTemplate(manifest: string, rationale: string) {
+    return this.guard("proposeTemplate", [manifest, rationale], () => {
+      const t = parseTemplateToml(manifest);
+      const exists = this.libraries.templates.files[`${t.name}/template.toml`] !== undefined;
+      return stripProposal(this.addPending("templates", `${exists ? "Update" : "Add"} template ${t.name}`, rationale, null, { [`${t.name}/template.toml`]: manifest }));
+    });
+  }
+
+  markLastTurnWrong(cid: string) {
+    return this.guard("markLastTurnWrong", [cid], () => {
+      const c = this.conv(cid);
+      const skills = c.last_turn_skills;
+      c.last_turn_skills = [];
+      for (const name of skills) {
+        const st = this.skillStats.get(name) ?? { uses: 0, successes: 0, failures: 0, negative: 0, last_used: null };
+        this.skillStats.set(name, { ...st, successes: Math.max(0, st.successes - 1), negative: st.negative + 1 });
+      }
+      return skills;
+    });
   }
 
   cleanupOrphans() {

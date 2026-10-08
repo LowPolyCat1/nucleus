@@ -57,3 +57,22 @@ async fn propose_approve_search_and_track() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn mark_wrong_moves_a_success_to_negative() {
+    let dir = tempfile::tempdir().unwrap();
+    let lib = SkillLibrary::open(dir.path().join("s"), dir.path().join("u.json"))
+        .await
+        .unwrap();
+    lib.usage().mark_wrong("x").unwrap();
+    assert_eq!(
+        (lib.usage().stats("x").successes, lib.usage().stats("x").negative),
+        (0, 1)
+    );
+    lib.usage().record_outcome("x", Outcome::Success).unwrap();
+    lib.usage().mark_wrong("x").unwrap();
+    assert_eq!(
+        (lib.usage().stats("x").successes, lib.usage().stats("x").negative),
+        (0, 2)
+    );
+}

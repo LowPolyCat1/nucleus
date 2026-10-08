@@ -47,6 +47,8 @@ export interface Conversation {
   session_id: string | null;
   created: number;
   status: ConversationStatus;
+  /** Skills the last turn used, until that turn is rated. */
+  last_turn_skills: string[];
 }
 
 export interface BranchInfo {
@@ -216,4 +218,13 @@ export interface LogEntry {
   level: LogLevel;
   target: string;
   message: string;
+}
+
+export interface ToolManifest {
+  name: string;
+  description: string;
+  run: string;
+  test: string | null;
+  timeout_secs: number;
+  input_schema?: unknown;
 }

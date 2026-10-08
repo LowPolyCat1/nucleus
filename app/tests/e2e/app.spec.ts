@@ -120,3 +120,20 @@ test("logs view records operations", async ({ app }) => {
   await app.getByTestId("nav-logs").click();
   await expect(app.getByTestId("log-row").filter({ hasText: "conversation created" })).toBeVisible();
 });
+
+test("hand-written template goes through review and becomes usable", async ({ app }) => {
+  await open(app);
+  await app.getByTestId("nav-skills").click();
+  await app.getByTestId("new-template").click();
+  await app.getByLabel("template.toml").fill('name = "rust"\ndescription = "cargo registry"\nmount = { mode = "readonly" }\n[build]\ncommand = "true"\n');
+  await app.getByTestId("submit-proposal").click();
+  await expect(app.getByTestId("library-editor")).toBeHidden();
+  await app.getByTestId("nav-proposals").click();
+  await app.getByRole("button", { name: /Add template rust/ }).click();
+  await app.getByTestId("approve").click();
+  await app.getByTestId("nav-skills").click();
+  await expect(app.getByTestId("library-template-rust")).toBeVisible();
+  await app.getByTestId("workspace-demo").click();
+  await app.getByRole("tab", { name: "Templates & network" }).click();
+  await expect(app.getByTestId("template-rust")).toBeVisible();
+});

@@ -401,3 +401,70 @@ describe("sandbox settings", () => {
     expect(r.backend.calls.some(([m]) => m === "restartSandbox")).toBe(true);
   });
 });
+
+describe("library authoring and feedback", () => {
+  test("mark the last turn as wrong", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await withKey(r.backend);
+    const conv = r.backend.conversations[0];
+    fireEvent.click(await r.findByTestId(`conversation-${conv.id}`));
+    expect(r.queryByTestId("turn-feedback")).not.toBeInTheDocument();
+    await user.type(await r.findByLabelText("Message"), "go");
+    await user.click(r.getByTestId("send"));
+    expect(await r.findByTestId("turn-feedback")).toHaveTextContent("rust-style");
+    await user.click(r.getByTestId("mark-wrong"));
+    expect(await r.findByText("Recorded a bad outcome for rust-style")).toBeInTheDocument();
+    await waitFor(() => expect(r.queryByTestId("turn-feedback")).not.toBeInTheDocument());
+  });
+
+  test("write a new skill: errors keep the editor open, success creates a proposal", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await r.findByTestId("workspace-view");
+    await user.click(r.getByTestId("nav-skills"));
+    await user.click(await r.findByTestId("new-skill"));
+    const editor = r.getByLabelText("SKILL.md");
+    expect((editor as HTMLTextAreaElement).value).toContain("name: my-skill");
+    await user.clear(editor);
+    await user.type(editor, "no frontmatter");
+    await user.click(r.getByTestId("submit-proposal"));
+    expect(await r.findByTestId("toast-error")).toHaveTextContent("frontmatter");
+    expect(r.getByTestId("library-editor")).toBeInTheDocument();
+    fireEvent.input(editor, { target: { value: "---\nname: review-prs\ndescription: How we review\n---\nBe kind.\n" } });
+    await user.type(r.getByLabelText("Rationale"), "team practice");
+    await user.click(r.getByTestId("submit-proposal"));
+    await waitFor(() => expect(r.queryByTestId("library-editor")).not.toBeInTheDocument());
+    expect(await r.findByText(/Proposal created: Add skill review-prs/)).toBeInTheDocument();
+    await waitFor(() => expect(r.getByTestId("proposal-count")).toHaveTextContent("3"));
+    const p = (await r.backend.proposals()).find((x) => x.title === "Add skill review-prs")!;
+    expect(p.rationale).toBe("team practice");
+  });
+
+  test("edit a template prefilled from the library; tools and templates are listed", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await r.findByTestId("workspace-view");
+    await user.click(r.getByTestId("nav-skills"));
+    expect(await r.findByTestId("tool-word-count")).toHaveTextContent("wc -w");
+    await user.click(await r.findByTestId("edit-template-python"));
+    const editor = await r.findByLabelText("template.toml");
+    expect((editor as HTMLTextAreaElement).value).toContain('name = "python"');
+    await user.click(r.getByTestId("submit-proposal"));
+    expect(await r.findByText(/Proposal created: Update template python/)).toBeInTheDocument();
+  });
+
+  test("propose removal of a flagged skill with a prefilled reason", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await r.findByTestId("workspace-view");
+    await user.click(r.getByTestId("nav-skills"));
+    expect(await r.findByTestId("skill-rust-style")).toHaveAttribute("data-flagged", "true");
+    await user.click(r.getByTestId("remove-skill-rust-style"));
+    expect((r.getByLabelText("Reason") as HTMLInputElement).value).toMatch(/Unreliable: \d+% over 5 uses/);
+    await user.click(r.getByTestId("confirm-remove-skill"));
+    expect(await r.findByText(/Proposal created: Remove skill rust-style/)).toBeInTheDocument();
+    // Still there until approved.
+    expect(r.getByTestId("skill-rust-style")).toBeInTheDocument();
+  });
+});

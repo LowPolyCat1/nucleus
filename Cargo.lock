@@ -2965,6 +2965,7 @@ dependencies = [
  "nucleus-sandbox",
  "nucleus-skills",
  "nucleus-templates",
+ "nucleus-tools",
  "nucleus-vcs",
  "serde",
  "serde_json",

@@ -106,6 +106,14 @@ function ChatView(props: { conversation: Conversation }) {
           <Show when={running()}>
             <Spinner label="Agent is working…" />
           </Show>
+          <Show when={!running() && props.conversation.last_turn_skills.length > 0}>
+            <div class="flex items-center gap-2 text-xs text-zinc-500" data-testid="turn-feedback">
+              <span>This turn used {props.conversation.last_turn_skills.join(", ")}.</span>
+              <button type="button" class="text-red-300 hover:underline" onClick={() => void actions.markLastTurnWrong(props.conversation.id)} data-testid="mark-wrong">
+                Mark result as wrong
+              </button>
+            </div>
+          </Show>
         </div>
       </div>
       <form
