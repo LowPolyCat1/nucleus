@@ -15,6 +15,15 @@ pub use types::*;
 use async_trait::async_trait;
 use futures::StreamExt;
 
+/// `uid:gid` of the harness process. Containers run as this user so files they write into
+/// mounted directories stay owned by the user.
+pub fn current_user() -> String {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata("/proc/self")
+        .map(|m| format!("{}:{}", m.uid(), m.gid()))
+        .unwrap_or_else(|_| "1000:1000".into())
+}
+
 pub type Result<T, E = anyhow::Error> = std::result::Result<T, E>;
 
 /// Label set on every container, network and volume the harness creates.
@@ -27,6 +36,9 @@ pub trait SandboxBackend: Send + Sync {
     /// Make sure `image` is available locally, pulling it if needed. Returns the image id, which
     /// identifies the exact image content (used for template staleness checks).
     async fn ensure_image(&self, image: &str) -> Result<String>;
+
+    /// Environment baked into an image (`KEY=value`), e.g. its `PATH`.
+    async fn image_env(&self, image: &str) -> Result<Vec<String>>;
 
     /// Create and start a long-running container, including its network setup.
     async fn create(&self, spec: &ContainerSpec) -> Result<ContainerInfo>;

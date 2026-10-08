@@ -219,6 +219,12 @@ impl SandboxBackend for BollardBackend {
         info.id.ok_or_else(|| anyhow!("image {image} has no id"))
     }
 
+    async fn image_env(&self, image: &str) -> Result<Vec<String>> {
+        self.ensure_image(image).await?;
+        let info = self.docker.inspect_image(image).await?;
+        Ok(info.config.and_then(|c| c.env).unwrap_or_default())
+    }
+
     async fn create(&self, spec: &ContainerSpec) -> Result<ContainerInfo> {
         self.ensure_image(&spec.image).await?;
         for v in &spec.volumes {
