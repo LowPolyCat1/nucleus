@@ -258,3 +258,44 @@ async fn workspace_rules() {
     let ws = f.harness.add_workspace(&f.repo.join("sub"), None).await.unwrap();
     assert_eq!(ws.repo, f.repo);
 }
+
+#[tokio::test]
+async fn limits_and_permission_mode_reach_the_sandbox() {
+    let f = fixture(Engine::Docker).await;
+    let mut s = f.harness.settings().await;
+    s.permission_mode = "acceptEdits".into();
+    s.limits = ResourceLimits {
+        memory_mb: Some(1024),
+        cpus: Some(2.0),
+        pids: None,
+    };
+    f.harness.update_settings(s.clone()).await.unwrap();
+    let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
+    let spec = f.backend.spec(&conv.container).unwrap();
+    assert_eq!(spec.limits.memory_bytes, Some(1024 * 1024 * 1024));
+    assert_eq!(spec.limits.nano_cpus, Some(2_000_000_000));
+    assert_eq!(spec.limits.pids, None);
+    f.harness.send_message(&conv.id, "x").await.unwrap();
+    let args = f.last_args();
+    let i = args.iter().position(|a| a == "--permission-mode").unwrap();
+    assert_eq!(args[i + 1], "acceptEdits");
+
+    // Invalid settings are rejected and nothing changes.
+    let mut bad = s.clone();
+    bad.permission_mode = "yolo".into();
+    assert!(f.harness.update_settings(bad).await.is_err());
+    assert_eq!(f.harness.settings().await.permission_mode, "acceptEdits");
+
+    // Restarting applies new limits to an existing conversation and keeps its session.
+    s.limits.memory_mb = Some(2048);
+    f.harness.update_settings(s).await.unwrap();
+    f.harness.restart_container(&conv.id).await.unwrap();
+    assert_eq!(
+        f.backend.spec(&conv.container).unwrap().limits.memory_bytes,
+        Some(2048 * 1024 * 1024)
+    );
+    f.harness.send_message(&conv.id, "again").await.unwrap();
+    assert!(f.last_args().contains(&"--resume".to_string()));
+    assert!(f.harness.restart_container("missing").await.is_err());
+}

@@ -38,12 +38,18 @@ pub fn merge(current: &Settings, incoming: Settings) -> anyhow::Result<Settings>
             env.insert(k, v);
         }
     }
-    Ok(Settings {
+    let merged = Settings {
         image: incoming.image.trim().to_string(),
-        model: incoming.model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()),
+        model: incoming
+            .model
+            .clone()
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty()),
         provider_env: env,
-        default_network: incoming.default_network,
-    })
+        ..incoming
+    };
+    merged.validate()?;
+    Ok(merged)
 }
 
 #[cfg(test)]

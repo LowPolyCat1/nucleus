@@ -1,9 +1,10 @@
 import { createSignal, Show } from "solid-js";
 import { SECRET_MASK } from "../api/backend";
-import type { NetworkPolicy, Settings } from "../api/types";
+import { PERMISSION_MODES, type NetworkPolicy, type PermissionMode, type Settings } from "../api/types";
+import { parseLimit, PERMISSION_HELP, validateSettings } from "../lib/settings";
 import { useApp } from "../store";
 import { NetworkEditor } from "./NetworkEditor";
-import { Button, inputClass } from "./ui";
+import { Button, ErrorBox, inputClass } from "./ui";
 
 const AUTH_KEYS = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
 
@@ -27,14 +28,35 @@ function SettingsForm(props: { settings: Settings }) {
   const [secrets, setSecrets] = createSignal<Record<string, string>>({ ...props.settings.provider_env });
   const [network, setNetwork] = createSignal<NetworkPolicy | null>(props.settings.default_network);
   const [saving, setSaving] = createSignal(false);
+  const [permission, setPermission] = createSignal<PermissionMode>(props.settings.permission_mode);
+  const limitText = (v: number | null) => (v === null ? "" : String(v));
+  const [memory, setMemory] = createSignal(limitText(props.settings.limits.memory_mb));
+  const [cpus, setCpus] = createSignal(limitText(props.settings.limits.cpus));
+  const [pids, setPids] = createSignal(limitText(props.settings.limits.pids));
+  const draft = (): Settings | null => {
+    const n = network();
+    if (!n) return null;
+    const provider_env = Object.fromEntries(Object.entries(secrets()).filter(([, v]) => v !== ""));
+    return {
+      image: image().trim(),
+      model: model().trim() || null,
+      provider_env,
+      default_network: n,
+      permission_mode: permission(),
+      limits: { memory_mb: parseLimit(memory()), cpus: parseLimit(cpus()), pids: parseLimit(pids()) },
+    };
+  };
+  const invalid = () => {
+    const d = draft();
+    return d ? validateSettings(d) : "fix the network allowlist";
+  };
 
   const save = async (e: SubmitEvent) => {
     e.preventDefault();
-    const n = network();
-    if (!n) return;
+    const d = draft();
+    if (!d || invalid()) return;
     setSaving(true);
-    const provider_env = Object.fromEntries(Object.entries(secrets()).filter(([, v]) => v !== ""));
-    await actions.saveSettings({ image: image().trim(), model: model().trim() || null, provider_env, default_network: n });
+    await actions.saveSettings(d);
     setSaving(false);
   };
 
@@ -71,6 +93,19 @@ function SettingsForm(props: { settings: Settings }) {
           </label>
         ))}
         <label class="flex flex-col gap-1 text-xs text-zinc-400">
+          Permission mode
+          <select class={inputClass} aria-label="Permission mode" onChange={(e) => setPermission(e.currentTarget.value as PermissionMode)}>
+            {PERMISSION_MODES.map((m) => (
+              <option value={m} selected={m === permission()}>
+                {m}
+              </option>
+            ))}
+          </select>
+          <span class="text-[11px] text-zinc-500" data-testid="permission-help">
+            {PERMISSION_HELP[permission()]}
+          </span>
+        </label>
+        <label class="flex flex-col gap-1 text-xs text-zinc-400">
           Model (optional)
           <input class={inputClass} value={model()} onInput={(e) => setModel(e.currentTarget.value)} placeholder="CLI default" aria-label="Model" />
         </label>
@@ -81,6 +116,21 @@ function SettingsForm(props: { settings: Settings }) {
           Agent image
           <input class={[inputClass, "font-mono"]} value={image()} onInput={(e) => setImage(e.currentTarget.value)} aria-label="Agent image" />
         </label>
+        <div class="grid grid-cols-3 gap-3">
+          <label class="flex flex-col gap-1 text-xs text-zinc-400">
+            Memory (MiB)
+            <input class={inputClass} inputmode="numeric" placeholder="no limit" value={memory()} onInput={(e) => setMemory(e.currentTarget.value)} aria-label="Memory limit" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-zinc-400">
+            CPUs
+            <input class={inputClass} inputmode="decimal" placeholder="no limit" value={cpus()} onInput={(e) => setCpus(e.currentTarget.value)} aria-label="CPU limit" />
+          </label>
+          <label class="flex flex-col gap-1 text-xs text-zinc-400">
+            Processes
+            <input class={inputClass} inputmode="numeric" placeholder="no limit" value={pids()} onInput={(e) => setPids(e.currentTarget.value)} aria-label="Process limit" />
+          </label>
+        </div>
+        <p class="text-xs text-zinc-500">Limits apply to new sandboxes; use Restart sandbox in a conversation to apply them there.</p>
         <div class="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => void actions.buildImage()} data-testid="build-image">
             Build agent image
@@ -97,8 +147,9 @@ function SettingsForm(props: { settings: Settings }) {
         <h2 class="text-sm font-semibold text-zinc-200">Default network policy for new workspaces</h2>
         <NetworkEditor name="default" value={props.settings.default_network} onChange={setNetwork} />
       </section>
-      <div>
-        <Button type="submit" disabled={saving() || !network() || !image().trim()} data-testid="save-settings">
+      <div class="flex flex-col gap-2">
+        <Show when={invalid()}>{(m) => <ErrorBox message={m()} testid="settings-invalid" />}</Show>
+        <Button class="self-start" type="submit" disabled={saving() || !!invalid()} data-testid="save-settings">
           {saving() ? "Saving…" : "Save settings"}
         </Button>
       </div>

@@ -227,3 +227,8 @@ pub async fn recent_logs(
 ) -> CmdResult<Vec<crate::logging::LogEntry>> {
     Ok(logs.entries(min_level.as_deref()))
 }
+
+#[tauri::command]
+pub async fn restart_sandbox(core: S<'_>, id: String) -> CmdResult<()> {
+    core.harness().await?.restart_container(&id).await.map_err(err)
+}

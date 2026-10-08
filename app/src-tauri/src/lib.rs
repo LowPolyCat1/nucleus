@@ -71,6 +71,7 @@ pub fn run() {
             commands::cleanup_orphans,
             commands::build_agent_image,
             commands::recent_logs,
+            commands::restart_sandbox,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nucleus");

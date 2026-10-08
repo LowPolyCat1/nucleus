@@ -284,6 +284,7 @@ export function createApp(backend: Backend, options: { toastMs?: number } = {}) 
       bumpRepo();
     },
     cancel: (id: string) => attempt(() => backend.cancel(id)),
+    restartSandbox: (id: string) => attempt(() => backend.restartSandbox(id), "Sandbox restarted with the current settings"),
     async rename(id: string, title: string) {
       if (!title.trim()) return;
       await attempt(() => backend.renameConversation(id, title));

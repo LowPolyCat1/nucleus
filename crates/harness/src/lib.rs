@@ -201,6 +201,7 @@ impl Harness {
     }
 
     pub async fn update_settings(&self, settings: Settings) -> Result<()> {
+        settings.validate()?;
         self.mutate(|s| {
             s.settings = settings;
             Ok(())
@@ -530,6 +531,7 @@ impl Harness {
         spec.user = current_user();
         spec.workdir = Some(WORKSPACE_MOUNT.into());
         spec.network = ws.network.clone();
+        spec.limits = settings.limits.to_sandbox();
         spec.required_hosts = REQUIRED_HOSTS.iter().map(|h| h.to_string()).collect();
         spec.labels.insert(CONVERSATION_LABEL.into(), conv.id.clone());
         spec.labels.insert("nucleus.workspace".into(), ws.id.clone());
@@ -584,6 +586,19 @@ impl Harness {
         Ok(())
     }
 
+    /// Recreate the conversation's container, e.g. to apply new limits or network settings.
+    /// The worktree and the CLI's home (sessions) survive.
+    pub async fn restart_container(&self, conversation_id: &str) -> Result<()> {
+        let lock = self.conversation_lock(conversation_id).await;
+        let _guard = lock
+            .try_lock()
+            .map_err(|_| anyhow!("wait for the running turn to finish"))?;
+        let conv = self.state.lock().await.conversation(conversation_id)?.clone();
+        self.start_container(&conv).await?;
+        tracing::info!(conversation = %conv.id, "sandbox restarted");
+        Ok(())
+    }
+
     fn system_append(&self, conv: &Conversation) -> String {
         format!(
             "You are running inside the nucleus harness, in a sandboxed container.\n\
@@ -627,6 +642,7 @@ impl Harness {
             workdir: WORKSPACE_MOUNT.into(),
             model: settings.model.clone(),
             mcp_config: Some(format!("{SUPPORT_MOUNT}/mcp.json")),
+            permission_mode: settings.permission_mode.clone(),
             env: settings.provider_env.clone(),
             ..Default::default()
         };

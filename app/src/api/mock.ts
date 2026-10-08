@@ -1,3 +1,4 @@
+import { validateSettings } from "../lib/settings";
 import { SECRET_MASK, type Backend } from "./backend";
 import type {
   AgentEvent,
@@ -128,6 +129,8 @@ export class MockBackend implements Backend {
     model: null,
     provider_env: {},
     default_network: { mode: "none" },
+    permission_mode: "bypassPermissions",
+    limits: { memory_mb: 8192, cpus: null, pids: 4096 },
   };
   private secrets: Record<string, string> = {};
   workspaces: Workspace[] = [];
@@ -427,7 +430,8 @@ export class MockBackend implements Backend {
 
   updateSettings(settings: Settings) {
     return this.guard("updateSettings", [settings], () => {
-      if (!settings.image.trim()) throw "image must not be empty";
+      const invalid = validateSettings(settings);
+      if (invalid) throw invalid;
       const next: Record<string, string> = {};
       for (const [k, v] of Object.entries(settings.provider_env)) {
         if (!k.trim()) continue;
@@ -657,6 +661,14 @@ export class MockBackend implements Backend {
     return this.guard("cancel", [cid], () => {
       const r = this.running.get(cid);
       if (r) r.cancelled = true;
+    });
+  }
+
+  restartSandbox(cid: string) {
+    return this.guard("restartSandbox", [cid], () => {
+      if (this.running.has(cid)) throw "wait for the running turn to finish";
+      this.conv(cid);
+      this.log("info", `sandbox restarted conversation=${cid}`);
     });
   }
 

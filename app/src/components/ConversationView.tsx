@@ -56,6 +56,16 @@ export function ConversationView(props: { conversation: Conversation }) {
             <span>· {relativeTime(props.conversation.created)}</span>
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Recreate the sandbox to apply new limits, network or templates"
+          disabled={props.conversation.status === "running"}
+          onClick={() => void actions.restartSandbox(props.conversation.id)}
+          data-testid="restart-sandbox"
+        >
+          Restart sandbox
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => setDeleting(true)} data-testid="delete-conversation">
           Delete
         </Button>

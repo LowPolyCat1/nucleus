@@ -13,6 +13,18 @@ export interface Settings {
   /** Values of secrets come back masked; send the mask to keep the stored value. */
   provider_env: Record<string, string>;
   default_network: NetworkPolicy;
+  /** Claude CLI `--permission-mode`. */
+  permission_mode: PermissionMode;
+  limits: ResourceLimits;
+}
+
+export const PERMISSION_MODES = ["bypassPermissions", "acceptEdits", "auto", "dontAsk", "manual", "plan"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export interface ResourceLimits {
+  memory_mb: number | null;
+  cpus: number | null;
+  pids: number | null;
 }
 
 export interface Workspace {

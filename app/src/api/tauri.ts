@@ -28,6 +28,7 @@ export function tauriBackend(): Backend {
     deleteConversation: (id, mode) => call("delete_conversation", { id, mode }),
     sendMessage: (id, prompt) => call("send_message", { id, prompt }),
     cancel: (id) => call("cancel", { id }),
+    restartSandbox: (id) => call("restart_sandbox", { id }),
     transcript: (id) => call("transcript", { id }),
     conversationDiff: (id) => call("conversation_diff", { id }),
     unmergedCommits: (id) => call("unmerged_commits", { id }),

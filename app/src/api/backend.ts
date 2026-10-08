@@ -53,6 +53,8 @@ export interface Backend {
   deleteConversation(id: string, mode: DeleteMode): Promise<DeleteOutcome>;
   sendMessage(id: string, prompt: string): Promise<TurnSummary>;
   cancel(id: string): Promise<void>;
+  /** Recreate a conversation's sandbox to apply new settings. */
+  restartSandbox(id: string): Promise<void>;
   transcript(id: string): Promise<TranscriptEntry[]>;
   conversationDiff(id: string): Promise<FileDiff[]>;
   unmergedCommits(id: string): Promise<CommitInfo[]>;

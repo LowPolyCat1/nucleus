@@ -368,3 +368,36 @@ describe("logs", () => {
     await waitFor(() => expect(r.queryByText("no logs for you")).not.toBeInTheDocument());
   });
 });
+
+describe("sandbox settings", () => {
+  test("limits and permission mode validate, save, and restart applies them", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await r.findByTestId("workspace-view");
+    await user.click(r.getByTestId("nav-settings"));
+    await user.selectOptions(await r.findByLabelText("Permission mode"), "acceptEdits");
+    expect(r.getByTestId("permission-help")).toHaveTextContent("Edit files freely");
+    const mem = r.getByLabelText("Memory limit");
+    await user.clear(mem);
+    await user.type(mem, "100");
+    expect(await r.findByTestId("settings-invalid")).toHaveTextContent("memory limit");
+    expect(r.getByTestId("save-settings")).toBeDisabled();
+    await user.clear(mem);
+    await user.type(mem, "2048");
+    await user.type(r.getByLabelText("CPU limit"), "abc");
+    expect(await r.findByTestId("settings-invalid")).toHaveTextContent("CPU");
+    await user.clear(r.getByLabelText("CPU limit"));
+    await user.type(r.getByLabelText("CPU limit"), "1.5");
+    await user.clear(r.getByLabelText("Process limit"));
+    await waitFor(() => expect(r.queryByTestId("settings-invalid")).not.toBeInTheDocument());
+    await user.click(r.getByTestId("save-settings"));
+    await waitFor(() => expect(r.backend.settings.limits).toEqual({ memory_mb: 2048, cpus: 1.5, pids: null }));
+    expect(r.backend.settings.permission_mode).toBe("acceptEdits");
+
+    const conv = r.backend.conversations[0];
+    fireEvent.click(r.getByTestId(`conversation-${conv.id}`));
+    await user.click(await r.findByTestId("restart-sandbox"));
+    expect(await r.findByText("Sandbox restarted with the current settings")).toBeInTheDocument();
+    expect(r.backend.calls.some(([m]) => m === "restartSandbox")).toBe(true);
+  });
+});
