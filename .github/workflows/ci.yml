@@ -2,11 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  rust:
+  rust-linux:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -16,12 +20,35 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Frontend build (embedded by tauri::generate_context)
         working-directory: app
         run: npm ci && npx vite build
       - run: scripts/test.sh rust
       - name: Engine tests (Docker on the runner)
         run: scripts/test.sh engine
+
+  rust-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend build
+        working-directory: app
+        run: npm ci && npx vite build
+      - name: Build and test (no container engine on these runners)
+        shell: bash
+        run: cargo test --workspace --all-features
 
   frontend:
     runs-on: ubuntu-24.04

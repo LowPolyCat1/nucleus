@@ -96,7 +96,7 @@ impl TemplateBuilder<'_> {
             &uuid::Uuid::new_v4().simple().to_string()[..8]
         );
         let mut spec = ContainerSpec::new(&name, &image);
-        spec.user = Some(current_user());
+        spec.user = current_user();
         spec.labels
             .insert("nucleus.template-build".into(), manifest.name.clone());
         spec.binds.push(BindMount {
@@ -199,15 +199,24 @@ impl TemplateBuilder<'_> {
 }
 
 fn make_writable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::symlink_metadata(path)
-        && meta.is_dir()
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    let mut perms = meta.permissions();
+    #[cfg(unix)]
     {
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(meta.permissions().mode() | 0o700));
-        if let Ok(rd) = std::fs::read_dir(path) {
-            for e in rd.flatten() {
-                make_writable(&e.path());
-            }
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(perms.mode() | 0o700);
+    }
+    #[cfg(not(unix))]
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    let _ = std::fs::set_permissions(path, perms);
+    if meta.is_dir()
+        && let Ok(rd) = std::fs::read_dir(path)
+    {
+        for e in rd.flatten() {
+            make_writable(&e.path());
         }
     }
 }

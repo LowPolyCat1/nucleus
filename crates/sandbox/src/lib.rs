@@ -5,25 +5,33 @@
 
 mod bollard_backend;
 pub mod caches;
+pub mod endpoint;
 #[cfg(feature = "fake")]
 pub mod fake;
 mod network;
 mod types;
 
-pub use bollard_backend::{BollardBackend, detect_socket};
+pub use bollard_backend::BollardBackend;
+pub use endpoint::{Endpoint, detect as detect_endpoint};
 pub use network::EgressPlan;
 pub use types::*;
 
 use async_trait::async_trait;
 use futures::StreamExt;
 
-/// `uid:gid` of the harness process. Containers run as this user so files they write into
-/// mounted directories stay owned by the user.
-pub fn current_user() -> String {
-    use std::os::unix::fs::MetadataExt;
-    std::fs::metadata("/proc/self")
-        .map(|m| format!("{}:{}", m.uid(), m.gid()))
-        .unwrap_or_else(|_| "1000:1000".into())
+/// `uid:gid` of the harness process, so files containers write into mounted directories stay
+/// owned by the user. `None` on Windows, where the engine runs in a VM with its own users.
+pub fn current_user() -> Option<String> {
+    #[cfg(unix)]
+    {
+        // SAFETY: getuid and getgid cannot fail and have no preconditions.
+        let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+        Some(format!("{uid}:{gid}"))
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }
 
 pub type Result<T, E = anyhow::Error> = std::result::Result<T, E>;

@@ -527,7 +527,7 @@ impl Harness {
         self.write_support(&conv.id)?;
 
         let mut spec = ContainerSpec::new(&conv.container, &settings.image);
-        spec.user = Some(current_user());
+        spec.user = current_user();
         spec.workdir = Some(WORKSPACE_MOUNT.into());
         spec.network = ws.network.clone();
         spec.required_hosts = REQUIRED_HOSTS.iter().map(|h| h.to_string()).collect();

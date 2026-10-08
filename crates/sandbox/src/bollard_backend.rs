@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, anyhow, bail};
 use async_trait::async_trait;
@@ -13,6 +13,7 @@ use bollard::query_parameters::{
 };
 use futures::{FutureExt, StreamExt, TryStreamExt};
 
+use crate::endpoint::{Endpoint, Os};
 use crate::network::EgressPlan;
 use crate::{
     ContainerInfo, ContainerSpec, Engine, ExecChunk, ExecHandle, ExecSpec, MANAGED_LABEL, MountMode, Result,
@@ -22,24 +23,6 @@ use crate::{
 const EGRESS_JS: &str = include_str!("../support/egress.js");
 const EGRESS_PORT: u16 = 3128;
 const EGRESS_ALIAS: &str = "egress";
-
-/// Find the container engine socket. Order: `NUCLEUS_CONTAINER_SOCKET`, rootless Podman,
-/// rootful Podman, Docker.
-pub fn detect_socket() -> Option<PathBuf> {
-    if let Ok(s) = std::env::var("NUCLEUS_CONTAINER_SOCKET") {
-        return Some(PathBuf::from(s.trim_start_matches("unix://")));
-    }
-    let mut candidates = Vec::new();
-    if let Ok(rt) = std::env::var("XDG_RUNTIME_DIR") {
-        candidates.push(PathBuf::from(rt).join("podman/podman.sock"));
-    }
-    candidates.push("/run/podman/podman.sock".into());
-    candidates.push("/var/run/docker.sock".into());
-    if let Ok(home) = std::env::var("HOME") {
-        candidates.push(PathBuf::from(home).join(".docker/run/docker.sock"));
-    }
-    candidates.into_iter().find(|p| p.exists())
-}
 
 /// [`SandboxBackend`] for Podman and Docker through the Docker-compatible API.
 #[derive(Clone)]
@@ -51,13 +34,37 @@ pub struct BollardBackend {
 }
 
 impl BollardBackend {
-    pub async fn connect(socket: &Path, support_dir: impl Into<PathBuf>) -> Result<Self> {
-        let docker = Docker::connect_with_unix(
-            socket.to_str().ok_or_else(|| anyhow!("non utf-8 socket path"))?,
-            300,
-            bollard::API_DEFAULT_VERSION,
-        )?;
-        let version = docker.version().await.context("container engine is not reachable")?;
+    pub async fn connect(endpoint: &Endpoint, support_dir: impl Into<PathBuf>) -> Result<Self> {
+        let docker = match endpoint {
+            Endpoint::Unix(socket) => {
+                #[cfg(unix)]
+                {
+                    Docker::connect_with_unix(
+                        socket.to_str().ok_or_else(|| anyhow!("non utf-8 socket path"))?,
+                        300,
+                        bollard::API_DEFAULT_VERSION,
+                    )?
+                }
+                #[cfg(not(unix))]
+                {
+                    bail!("unix sockets are not supported on this platform: {}", socket.display())
+                }
+            }
+            Endpoint::NamedPipe(pipe) => {
+                #[cfg(windows)]
+                {
+                    Docker::connect_with_named_pipe(pipe, 300, bollard::API_DEFAULT_VERSION)?
+                }
+                #[cfg(not(windows))]
+                {
+                    bail!("named pipes are only supported on Windows: {pipe}")
+                }
+            }
+        };
+        let version = docker
+            .version()
+            .await
+            .with_context(|| format!("container engine at {endpoint} is not reachable"))?;
         let is_podman = version
             .components
             .unwrap_or_default()
@@ -73,12 +80,9 @@ impl BollardBackend {
         })
     }
 
-    /// Connect to the auto-detected socket.
+    /// Connect to the auto-detected engine.
     pub async fn connect_default(support_dir: impl Into<PathBuf>) -> Result<Self> {
-        let socket = detect_socket().ok_or_else(|| {
-            anyhow!("no Podman or Docker socket found; start `podman system service` or Docker, or set NUCLEUS_CONTAINER_SOCKET")
-        })?;
-        Self::connect(&socket, support_dir).await
+        Self::connect(&crate::endpoint::detect()?, support_dir).await
     }
 
     pub fn docker(&self) -> &Docker {
@@ -96,7 +100,10 @@ impl BollardBackend {
     fn binds(&self, spec: &ContainerSpec) -> Result<Vec<String>> {
         let mut binds = Vec::new();
         for b in &spec.binds {
-            let src = b.source.to_str().ok_or_else(|| anyhow!("non utf-8 mount source"))?;
+            if b.source.to_str().is_none() {
+                bail!("non utf-8 mount source {}", b.source.display());
+            }
+            let src = crate::endpoint::bind_source(&b.source, Os::current(), self.engine == Engine::Podman);
             let opt = match b.mode {
                 MountMode::ReadOnly => "ro",
                 MountMode::ReadWrite => "rw",
@@ -169,7 +176,10 @@ impl BollardBackend {
             ]),
             labels: Some(labels),
             host_config: Some(HostConfig {
-                binds: Some(vec![format!("{}:/nucleus/egress.js:ro", script.display())]),
+                binds: Some(vec![format!(
+                    "{}:/nucleus/egress.js:ro",
+                    crate::endpoint::bind_source(&script, Os::current(), self.engine == Engine::Podman)
+                )]),
                 cap_drop: Some(vec!["ALL".into()]),
                 security_opt: Some(vec!["no-new-privileges".into()]),
                 memory: Some(256 << 20),

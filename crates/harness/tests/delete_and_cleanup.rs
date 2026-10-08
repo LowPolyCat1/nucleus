@@ -1,3 +1,4 @@
+#![cfg(unix)] // Uses sh scripts on the host.
 mod common;
 
 use common::*;

@@ -1,3 +1,4 @@
+#![cfg(unix)] // Uses sh scripts on the host.
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 

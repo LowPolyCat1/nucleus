@@ -1,3 +1,4 @@
+#![cfg(unix)] // Uses sh scripts on the host.
 //! Drives the Claude CLI provider against a fake `claude` script on the host.
 
 use std::sync::Arc;

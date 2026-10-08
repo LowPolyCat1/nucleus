@@ -1,3 +1,4 @@
+#![cfg(unix)] // Uses sh scripts on the host.
 //! The whole harness against a real container engine. Run with `NUCLEUS_ENGINE_TESTS=1`.
 //!
 //! The agent image is `node:22-alpine` and the Claude CLI is replaced by a fake installed
@@ -138,5 +139,10 @@ async fn real_engine_end_to_end() {
 }
 
 fn current_uid() -> String {
-    nucleus_sandbox::current_user().split(':').next().unwrap().to_string()
+    nucleus_sandbox::current_user()
+        .unwrap()
+        .split(':')
+        .next()
+        .unwrap()
+        .to_string()
 }

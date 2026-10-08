@@ -82,16 +82,18 @@ impl State {
     /// Atomic write, readable only by the user (it holds provider credentials).
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
         let tmp = path.with_extension("tmp");
-        let mut f = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp)?;
         f.write_all(&serde_json::to_vec_pretty(self)?)?;
         f.sync_all()?;
+        drop(f);
         std::fs::rename(tmp, path)?;
         Ok(())
     }

@@ -82,7 +82,6 @@ pub async fn promote_candidate(
 }
 
 fn collect(root: &Path, dir: &Path, name: &str, out: &mut Vec<FileChange>) -> crate::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
     for e in std::fs::read_dir(dir)? {
         let e = e?;
         let meta = std::fs::symlink_metadata(e.path())?;
@@ -108,11 +107,22 @@ fn collect(root: &Path, dir: &Path, name: &str, out: &mut Vec<FileChange>) -> cr
         out.push(FileChange {
             path: format!("{name}/{rel}"),
             content: Some(content),
-            executable: meta.permissions().mode() & 0o111 != 0,
+            executable: is_executable(&meta),
         });
         if out.len() > MAX_FILES {
             bail!("tool has more than {MAX_FILES} files");
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn is_executable(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_: &std::fs::Metadata) -> bool {
+    false
 }
