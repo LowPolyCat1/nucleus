@@ -109,6 +109,16 @@ pub struct TemplateStatus {
     pub error: Option<String>,
 }
 
+/// The egress proxy's view of a conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EgressLog {
+    /// `isolated` (no network), `proxied` (allowlist through the proxy) or `open` (full access).
+    pub mode: String,
+    /// Hosts the proxy lets through.
+    pub allowed: Vec<String>,
+    pub entries: Vec<nucleus_sandbox::EgressEntry>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CleanupReport {
     pub containers: Vec<String>,
@@ -364,7 +374,15 @@ impl Harness {
             self.emit(HarnessEvent::Progress {
                 message: format!("Preparing template {}", m.name),
             });
-            let outcome = builder.build(&m, &ws.repo, &image).await?;
+            let sink = self.sink.clone();
+            let template = m.name.clone();
+            let on_line = move |line: &str| {
+                sink(HarnessEvent::BuildOutput {
+                    template: template.clone(),
+                    line: line.to_string(),
+                })
+            };
+            let outcome = builder.build_streaming(&m, &ws.repo, &image, &on_line).await?;
             if outcome.built {
                 tracing::info!(template = %m.name, identity = %outcome.identity, "template built");
                 self.emit(HarnessEvent::Progress {
@@ -395,6 +413,41 @@ impl Harness {
             builder.prune(name, &keep).await.ok();
         }
         Ok(mounts)
+    }
+
+    /// Output of the most recent build of a template, successful or not.
+    pub fn template_build_log(&self, name: &str) -> Option<String> {
+        TemplateBuilder {
+            backend: self.backend.as_ref(),
+            root: self.paths.template_builds(),
+        }
+        .last_log(name)
+    }
+
+    /// What the egress proxy allowed and denied for a conversation's sandbox, oldest first.
+    pub async fn egress_log(&self, conversation_id: &str) -> Result<EgressLog> {
+        let (conv, network) = {
+            let s = self.state.lock().await;
+            let conv = s.conversation(conversation_id)?.clone();
+            let network = s.workspace(&conv.workspace_id)?.network.clone();
+            (conv, network)
+        };
+        let required: Vec<String> = REQUIRED_HOSTS.iter().map(|h| h.to_string()).collect();
+        let plan = nucleus_sandbox::EgressPlan::for_policy(&network, &required);
+        let (mode, allowed) = match &plan {
+            nucleus_sandbox::EgressPlan::Isolated => ("isolated", Vec::new()),
+            nucleus_sandbox::EgressPlan::Proxied { allow } => ("proxied", allow.clone()),
+            nucleus_sandbox::EgressPlan::Open => ("open", Vec::new()),
+        };
+        let entries = match plan {
+            nucleus_sandbox::EgressPlan::Proxied { .. } => self.backend.egress_log(&conv.container, 1000).await?,
+            _ => Vec::new(),
+        };
+        Ok(EgressLog {
+            mode: mode.to_string(),
+            allowed,
+            entries,
+        })
     }
 
     pub fn workspace_vcs(&self, ws: &Workspace) -> Result<GixVcs> {

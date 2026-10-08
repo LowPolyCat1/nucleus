@@ -105,5 +105,13 @@ async fn proxied_network_denies_unlisted_hosts() {
         .await
         .unwrap();
     assert_eq!(res.stdout_str().trim(), "blocked");
+    let log = b.egress_log(&name, 100).await.unwrap();
+    assert!(
+        log.iter().any(|e| e.verdict == "deny" && e.target == "denied.example"),
+        "{log:?}"
+    );
+    assert!(b.logs(&format!("{name}-egress"), 1).await.unwrap().lines().count() <= 1);
+    // A container without a proxy has an empty egress log.
+    assert!(b.egress_log("does-not-exist", 10).await.unwrap().is_empty());
     b.remove(&name).await.unwrap();
 }

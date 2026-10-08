@@ -479,3 +479,54 @@ test("cleanup reports items it could not remove", async () => {
   expect(await r.findByText("Removed 1 orphaned resources")).toBeInTheDocument();
   expect(await r.findByText(/Could not remove:\s*branch agent\/x: checked out/)).toBeInTheDocument();
 });
+
+describe("network and build logs", () => {
+  test("network tab shows allowed and blocked requests, and open mode", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await withKey(r.backend);
+    const conv = r.backend.conversations[0];
+    fireEvent.click(await r.findByTestId(`conversation-${conv.id}`));
+    await user.type(await r.findByLabelText("Message"), "download the dataset");
+    await user.click(r.getByTestId("send"));
+    await r.findByTestId("msg-turn");
+    await user.click(r.getByRole("tab", { name: "Network" }));
+    expect(await r.findByTestId("network-mode")).toHaveTextContent("proxied");
+    expect(r.getByTestId("allowed-hosts")).toHaveTextContent("api.anthropic.com");
+    expect(await r.findByTestId("denied-summary")).toHaveTextContent("1 request was blocked");
+    expect(r.getAllByTestId("egress-row").map((e) => e.dataset.verdict)).toEqual(["deny", "allow"]);
+
+    await r.backend.configureWorkspace(conv.workspace_id, [], { mode: "full" });
+    await user.click(r.getByTestId("refresh-network"));
+    await waitFor(() => expect(r.getByTestId("network-mode")).toHaveTextContent("open"));
+    expect(r.queryByTestId("egress-row")).not.toBeInTheDocument();
+  });
+
+  test("network tab shows backend errors", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    const conv = r.backend.conversations[0];
+    fireEvent.click(await r.findByTestId(`conversation-${conv.id}`));
+    r.backend.failNext("egressLog", "engine unreachable");
+    await user.click(await r.findByRole("tab", { name: "Network" }));
+    expect(await r.findByText("engine unreachable")).toBeInTheDocument();
+  });
+
+  test("template builds stream output and keep a log", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await r.findByTestId("workspace-view");
+    await user.click(r.getByRole("tab", { name: "Templates & network" }));
+    await user.click(await r.findByLabelText("Use template node"));
+    await user.click(r.getByTestId("save-workspace"));
+    await waitFor(() => expect(r.backend.workspaces[0].templates).toEqual(["node"]));
+    await user.click(await r.findByTestId("build-log-node"));
+    expect(await r.findByTestId("build-log")).toHaveTextContent("not been built yet");
+    await user.click(r.getByRole("button", { name: "Close dialog" }));
+    await user.click(r.getByTestId("build-templates"));
+    expect(await r.findByTestId("build-output")).toHaveTextContent("[node] resolving dependencies for node");
+    await waitFor(() => expect(within(r.getByTestId("template-status")).getByText("built")).toBeInTheDocument());
+    await user.click(r.getByTestId("build-log-node"));
+    expect(await r.findByTestId("build-log")).toHaveTextContent("$ pnpm install --frozen-lockfile");
+  });
+});

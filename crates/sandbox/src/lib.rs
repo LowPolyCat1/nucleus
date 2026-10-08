@@ -34,6 +34,41 @@ pub fn current_user() -> Option<String> {
     }
 }
 
+/// Name of the egress proxy sidecar of `container`.
+pub fn egress_name(container: &str) -> String {
+    format!("{container}-egress")
+}
+
+/// One decision of the egress proxy.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EgressEntry {
+    /// Milliseconds since the unix epoch.
+    pub time: i64,
+    /// `allow` or `deny`.
+    pub verdict: String,
+    /// `host:port` for tunnels, `host` for plain HTTP.
+    pub target: String,
+}
+
+/// Parse the JSON lines the egress proxy writes; other lines (and its startup line) are skipped.
+pub fn parse_egress_log(text: &str) -> Vec<EgressEntry> {
+    text.lines()
+        .filter_map(|l| {
+            let start = l.find('{')?;
+            let v: serde_json::Value = serde_json::from_str(&l[start..]).ok()?;
+            let verdict = v.get("verdict")?.as_str()?;
+            if verdict != "allow" && verdict != "deny" {
+                return None;
+            }
+            Some(EgressEntry {
+                time: v.get("t").and_then(|t| t.as_i64()).unwrap_or(0),
+                verdict: verdict.to_string(),
+                target: v.get("target")?.as_str()?.to_string(),
+            })
+        })
+        .collect()
+}
+
 pub type Result<T, E = anyhow::Error> = std::result::Result<T, E>;
 
 /// Label set on every container, network and volume the harness creates.
@@ -63,6 +98,18 @@ pub trait SandboxBackend: Send + Sync {
     /// Containers created by the harness, optionally filtered by a label value.
     async fn list(&self, label: Option<(&str, &str)>) -> Result<Vec<ContainerInfo>>;
 
+    /// Output a container's main process wrote (stdout and stderr), at most `tail` lines.
+    async fn logs(&self, name: &str, tail: usize) -> Result<String>;
+
+    /// Decisions of the egress proxy for a container: which hosts it allowed and denied.
+    /// Empty when the container has no proxy (no network at all, or full access).
+    async fn egress_log(&self, container: &str, tail: usize) -> Result<Vec<EgressEntry>> {
+        match self.logs(&egress_name(container), tail).await {
+            Ok(text) => Ok(parse_egress_log(&text)),
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
     /// Create a named volume if it does not exist.
     async fn ensure_volume(&self, name: &str) -> Result<()>;
 
@@ -82,5 +129,32 @@ pub trait SandboxBackend: Send + Sync {
             stdout,
             stderr,
         })
+    }
+}
+
+#[cfg(test)]
+mod egress_tests {
+    use super::*;
+
+    #[test]
+    fn parses_proxy_output() {
+        let text = "{\"t\":1,\"verdict\":\"listening\",\"target\":\"3128\"}\n\
+                    {\"t\":2,\"verdict\":\"allow\",\"target\":\"api.anthropic.com:443\"}\n\
+                    garbage\n\
+                    2026-01-01T00:00:00Z {\"t\":3,\"verdict\":\"deny\",\"target\":\"evil.example:443\"}\n\
+                    {\"t\":4,\"verdict\":\"deny\"}\n";
+        let e = parse_egress_log(text);
+        assert_eq!(e.len(), 2);
+        assert_eq!(
+            e[0],
+            EgressEntry {
+                time: 2,
+                verdict: "allow".into(),
+                target: "api.anthropic.com:443".into()
+            }
+        );
+        assert_eq!(e[1].verdict, "deny");
+        assert!(parse_egress_log("").is_empty());
+        assert_eq!(egress_name("c"), "c-egress");
     }
 }

@@ -58,6 +58,27 @@ impl TemplateBuilder<'_> {
         repo_root: &Path,
         default_image: &str,
     ) -> crate::Result<BuildOutcome> {
+        self.build_streaming(manifest, repo_root, default_image, &|_| {}).await
+    }
+
+    /// Path of the log of the most recent build of `name`.
+    pub fn last_log_path(&self, name: &str) -> PathBuf {
+        self.root.join(name).join("last-build.log")
+    }
+
+    /// Output of the most recent build of `name`, if any.
+    pub fn last_log(&self, name: &str) -> Option<String> {
+        std::fs::read_to_string(self.last_log_path(name)).ok()
+    }
+
+    /// Like [`Self::build`], passing every output line to `on_line` as it is produced.
+    pub async fn build_streaming(
+        &self,
+        manifest: &TemplateManifest,
+        repo_root: &Path,
+        default_image: &str,
+        on_line: &(dyn Fn(&str) + Send + Sync),
+    ) -> crate::Result<BuildOutcome> {
         let image = manifest
             .build
             .image
@@ -150,18 +171,15 @@ impl TemplateBuilder<'_> {
         self.backend.create(&spec).await?;
         // Give a proxy sidecar a moment to start listening before the build reaches out.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let result = self
-            .backend
-            .exec_collect(&name, &ExecSpec::new(["sh", "-ec", manifest.build.command.as_str()]))
-            .await;
+        let result = self.run_streaming(&name, manifest, on_line).await;
         self.backend.remove(&name).await.ok();
-        let result = result?;
-        let log = format!("{}{}", result.stdout_str(), result.stderr_str());
-        if !result.success() {
+        let (log, exit_code) = result?;
+        std::fs::write(self.last_log_path(&manifest.name), &log).ok();
+        if exit_code != Some(0) {
             bail!(
                 "building template {} failed (exit {:?}):\n{}",
                 manifest.name,
-                result.exit_code,
+                exit_code,
                 tail(&log, 4000)
             );
         }
@@ -174,6 +192,41 @@ impl TemplateBuilder<'_> {
         })
     }
 
+    async fn run_streaming(
+        &self,
+        container: &str,
+        manifest: &TemplateManifest,
+        on_line: &(dyn Fn(&str) + Send + Sync),
+    ) -> crate::Result<(String, Option<i64>)> {
+        use futures::StreamExt;
+        let spec = ExecSpec::new(["sh", "-ec", manifest.build.command.as_str()]);
+        let (mut output, _, exit) = self.backend.exec(container, &spec).await?.into_parts();
+        let mut log = String::new();
+        let line = |text: String, log: &mut String| {
+            on_line(&text);
+            log.push_str(&text);
+            log.push('\n');
+        };
+        let (mut out_buf, mut err_buf) = (Vec::new(), Vec::new());
+        while let Some(chunk) = output.next().await {
+            let (buf, bytes) = match chunk? {
+                nucleus_sandbox::ExecChunk::Stdout(b) => (&mut out_buf, b),
+                nucleus_sandbox::ExecChunk::Stderr(b) => (&mut err_buf, b),
+            };
+            buf.extend_from_slice(&bytes);
+            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                let l: Vec<u8> = buf.drain(..=pos).collect();
+                line(String::from_utf8_lossy(&l[..l.len() - 1]).into_owned(), &mut log);
+            }
+        }
+        for buf in [out_buf, err_buf] {
+            if !buf.is_empty() {
+                line(String::from_utf8_lossy(&buf).into_owned(), &mut log);
+            }
+        }
+        Ok((log, exit.await?))
+    }
+
     /// Remove builds of `name` other than `keep`.
     pub async fn prune(&self, name: &str, keep: &[String]) -> crate::Result<()> {
         let dir = self.root.join(name);
@@ -182,6 +235,9 @@ impl TemplateBuilder<'_> {
         };
         while let Some(e) = entries.next_entry().await? {
             let file = e.file_name().to_string_lossy().to_string();
+            if file == "last-build.log" {
+                continue;
+            }
             let id = file.trim_end_matches(".done");
             if keep.iter().any(|k| k == id) {
                 continue;

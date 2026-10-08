@@ -79,6 +79,8 @@ pub fn run() {
             commands::tools,
             commands::skill_source,
             commands::template_source,
+            commands::template_build_log,
+            commands::egress_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nucleus");

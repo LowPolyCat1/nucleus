@@ -5,7 +5,7 @@ import { useApp } from "../store";
 import { BranchTree } from "./BranchTree";
 import { DiffView } from "./DiffView";
 import { NetworkEditor } from "./NetworkEditor";
-import { Badge, Button, ErrorBox, errorText, inputBase, inputClass, Spinner } from "./ui";
+import { Badge, Button, ErrorBox, errorText, inputBase, inputClass, Modal, Spinner } from "./ui";
 
 export function WorkspaceView(props: { workspace: Workspace }) {
   const { state, actions, backend } = useApp();
@@ -171,7 +171,16 @@ function Branches(props: { workspaceId: string }) {
 }
 
 function WorkspaceSetup(props: { workspace: Workspace }) {
-  const { actions, backend } = useApp();
+  const { state, actions, backend } = useApp();
+  const [log, setLog] = createSignal<{ name: string; text: string } | null>(null);
+  const showLog = async (name: string) => {
+    try {
+      const text = await backend.templateBuildLog(name);
+      setLog({ name, text: text ?? "This template has not been built yet." });
+    } catch (e) {
+      actions.toast("error", errorText(e));
+    }
+  };
   const [selected, setSelected] = createSignal<string[]>([...props.workspace.templates]);
   const [network, setNetwork] = createSignal<NetworkPolicy | null>(props.workspace.network);
   const [error, setError] = createSignal<string | null>(null);
@@ -244,6 +253,9 @@ function WorkspaceSetup(props: { workspace: Workspace }) {
                   {(s) => (
                     <li class="flex items-center gap-2">
                       <span class="flex-1">{s.name}</span>
+                      <Button size="sm" variant="ghost" onClick={() => void showLog(s.name)} data-testid={`build-log-${s.name}`}>
+                        Log
+                      </Button>
                       <Show when={s.error} fallback={<Badge tone={s.fresh ? "emerald" : "amber"}>{s.fresh ? "built" : "needs build"}</Badge>}>
                         <Badge tone="red">error</Badge>
                       </Show>
@@ -256,6 +268,11 @@ function WorkspaceSetup(props: { workspace: Workspace }) {
           <Button class="mt-2" size="sm" variant="secondary" onClick={build} data-testid="build-templates">
             Build templates
           </Button>
+          <Show when={Object.keys(state.buildOutput).length > 0}>
+            <pre class="mt-3 max-h-60 overflow-auto rounded-md border border-zinc-800 bg-zinc-950 p-2 font-mono text-[11px] text-zinc-400" data-testid="build-output">
+              <For each={Object.entries(state.buildOutput)}>{([name, lines]) => <>{lines.map((l) => `[${name}] ${l}\n`).join("")}</>}</For>
+            </pre>
+          </Show>
         </div>
       </section>
       <section>
@@ -269,6 +286,13 @@ function WorkspaceSetup(props: { workspace: Workspace }) {
           Save
         </Button>
       </div>
+      <Show when={log()}>
+        {(l) => (
+          <Modal title={`Last build of ${l().name}`} onClose={() => setLog(null)} testid="build-log">
+            <pre class="max-h-[60vh] overflow-auto font-mono text-xs whitespace-pre-wrap text-zinc-300">{l().text || "(no output)"}</pre>
+          </Modal>
+        )}
+      </Show>
     </div>
   );
 }

@@ -279,3 +279,13 @@ pub async fn skill_source(core: S<'_>, name: String) -> CmdResult<String> {
 pub async fn template_source(core: S<'_>, name: String) -> CmdResult<String> {
     core.harness().await?.template_source(&name).map_err(err)
 }
+
+#[tauri::command]
+pub async fn template_build_log(core: S<'_>, name: String) -> CmdResult<Option<String>> {
+    Ok(core.harness().await?.template_build_log(&name))
+}
+
+#[tauri::command]
+pub async fn egress_log(core: S<'_>, id: String) -> CmdResult<nucleus_harness::EgressLog> {
+    core.harness().await?.egress_log(&id).await.map_err(err)
+}

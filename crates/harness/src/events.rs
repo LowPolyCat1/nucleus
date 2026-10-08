@@ -31,6 +31,11 @@ pub enum HarnessEvent {
     Progress {
         message: String,
     },
+    /// One line of output from a running template build.
+    BuildOutput {
+        template: String,
+        line: String,
+    },
 }
 
 pub type EventSink = std::sync::Arc<dyn Fn(HarnessEvent) + Send + Sync>;

@@ -226,6 +226,21 @@ async fn templates_are_built_validated_and_mounted() {
         .unwrap();
     let e = f.harness.create_conversation(&ws.id, "main", "t3").await.unwrap_err();
     assert!(format!("{e:#}").contains("nope"));
+    assert_eq!(f.harness.template_build_log("failing").unwrap(), "nope\n");
+    assert_eq!(f.harness.template_build_log("tool").unwrap(), "");
+    assert!(f.harness.template_build_log("never-built").is_none());
+    let lines: Vec<_> = f
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            HarnessEvent::BuildOutput { template, line } => Some((template, line)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        lines.contains(&("failing".to_string(), "nope".to_string())),
+        "{lines:?}"
+    );
 }
 
 #[tokio::test]

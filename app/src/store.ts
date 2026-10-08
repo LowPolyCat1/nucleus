@@ -17,7 +17,7 @@ import { applyEvent, emptyChat, fromTranscript, startTurn, type ChatState } from
 import { errorMessage } from "./lib/format";
 
 export type View = "workspace" | "conversation" | "proposals" | "skills" | "settings" | "logs";
-export type ConversationTab = "chat" | "changes";
+export type ConversationTab = "chat" | "changes" | "network";
 
 export interface Toast {
   id: number;
@@ -41,6 +41,8 @@ export interface UiState {
   progress: string | null;
   /** Bumped whenever repository contents may have changed, so views refetch. */
   repoVersion: number;
+  /** Live output of template builds, per template, while the app runs. */
+  buildOutput: Record<string, string[]>;
   libraryVersion: number;
 }
 
@@ -61,6 +63,7 @@ export function createApp(backend: Backend, options: { toastMs?: number } = {}) 
     toasts: [],
     progress: null,
     repoVersion: 0,
+    buildOutput: {},
     libraryVersion: 0,
   });
   let toastId = 0;
@@ -146,6 +149,13 @@ export function createApp(backend: Backend, options: { toastMs?: number } = {}) 
         break;
       case "proposal_failed":
         toast("error", `A ${e.kind} proposal was rejected automatically: ${e.error}`);
+        break;
+      case "build_output":
+        setState((s) => {
+          const lines = (s.buildOutput[e.template] ??= []);
+          lines.push(e.line);
+          if (lines.length > 500) lines.splice(0, lines.length - 500);
+        });
         break;
       case "progress":
         setState((s) => {
@@ -246,6 +256,9 @@ export function createApp(backend: Backend, options: { toastMs?: number } = {}) 
       }
     },
     async buildTemplates(id: string) {
+      setState((s) => {
+        s.buildOutput = {};
+      });
       await attempt(() => backend.buildTemplates(id), "Templates are up to date");
       setState((s) => {
         s.progress = null;

@@ -299,3 +299,28 @@ async fn limits_and_permission_mode_reach_the_sandbox() {
     assert!(f.last_args().contains(&"--resume".to_string()));
     assert!(f.harness.restart_container("missing").await.is_err());
 }
+
+#[tokio::test]
+async fn egress_log_follows_the_network_policy() {
+    let f = fixture(Engine::Docker).await;
+    let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
+    f.backend.set_logs(
+        &format!("{}-egress", conv.container),
+        "{\"t\":1,\"verdict\":\"listening\",\"target\":\"3128\"}\n{\"t\":2,\"verdict\":\"allow\",\"target\":\"api.anthropic.com:443\"}\n{\"t\":3,\"verdict\":\"deny\",\"target\":\"evil.example:443\"}\n",
+    );
+    let log = f.harness.egress_log(&conv.id).await.unwrap();
+    assert_eq!(log.mode, "proxied");
+    assert!(log.allowed.contains(&"api.anthropic.com".to_string()));
+    assert_eq!(log.entries.len(), 2);
+    assert_eq!(log.entries[1].verdict, "deny");
+
+    f.harness
+        .configure_workspace(&ws.id, vec![], NetworkPolicy::Full)
+        .await
+        .unwrap();
+    let log = f.harness.egress_log(&conv.id).await.unwrap();
+    assert_eq!(log.mode, "open");
+    assert!(log.entries.is_empty());
+    assert!(f.harness.egress_log("missing").await.is_err());
+}

@@ -39,6 +39,7 @@ pub struct FakeBackend {
     containers: Mutex<HashMap<String, FakeContainer>>,
     execs: Mutex<Vec<ExecRecord>>,
     fail_create: Mutex<Option<String>>,
+    logs: Mutex<HashMap<String, String>>,
 }
 
 impl FakeBackend {
@@ -50,12 +51,18 @@ impl FakeBackend {
             containers: Mutex::new(HashMap::new()),
             execs: Mutex::new(Vec::new()),
             fail_create: Mutex::new(None),
+            logs: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn with_bin_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.bin_dirs.push(dir.into());
         self
+    }
+
+    /// Set what `logs(name)` returns, e.g. egress proxy output for `<container>-egress`.
+    pub fn set_logs(&self, name: &str, text: &str) {
+        self.logs.lock().unwrap().insert(name.to_string(), text.to_string());
     }
 
     /// Make the next `create` fail with this message.
@@ -292,6 +299,13 @@ impl SandboxBackend for FakeBackend {
                 running: true,
             })
             .collect())
+    }
+
+    async fn logs(&self, name: &str, tail: usize) -> Result<String> {
+        let logs = self.logs.lock().unwrap();
+        let text = logs.get(name).ok_or_else(|| anyhow!("no such container: {name}"))?;
+        let lines: Vec<&str> = text.lines().collect();
+        Ok(lines[lines.len().saturating_sub(tail)..].join("\n"))
     }
 
     async fn ensure_volume(&self, name: &str) -> Result<()> {

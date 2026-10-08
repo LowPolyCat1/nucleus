@@ -4,6 +4,7 @@ import type {
   BranchInfo,
   CleanupReport,
   CommitInfo,
+  EgressLog,
   Conversation,
   DeleteMode,
   DeleteOutcome,
@@ -44,6 +45,8 @@ export interface Backend {
   availableTemplates(): Promise<TemplateManifest[]>;
   templateStatus(workspaceId: string): Promise<TemplateStatus[]>;
   buildTemplates(workspaceId: string): Promise<void>;
+  /** Output of the most recent build of a template, or null if it was never built. */
+  templateBuildLog(name: string): Promise<string | null>;
 
   branches(workspaceId: string): Promise<BranchInfo[]>;
   graph(workspaceId: string, limit: number): Promise<CommitInfo[]>;
@@ -56,6 +59,8 @@ export interface Backend {
   cancel(id: string): Promise<void>;
   /** Recreate a conversation's sandbox to apply new settings. */
   restartSandbox(id: string): Promise<void>;
+  /** What the egress proxy allowed and denied for a conversation's sandbox. */
+  egressLog(id: string): Promise<EgressLog>;
   transcript(id: string): Promise<TranscriptEntry[]>;
   conversationDiff(id: string): Promise<FileDiff[]>;
   unmergedCommits(id: string): Promise<CommitInfo[]>;

@@ -122,7 +122,8 @@ export type HarnessEvent =
   | { type: "committed"; conversation_id: string; commit: string }
   | { type: "proposal_created"; proposal: Proposal }
   | { type: "proposal_failed"; conversation_id: string; kind: LibraryKind; error: string }
-  | { type: "progress"; message: string };
+  | { type: "progress"; message: string }
+  | { type: "build_output"; template: string; line: string };
 
 export type TranscriptEntry =
   | { role: "user"; text: string }
@@ -229,4 +230,17 @@ export interface ToolManifest {
   test: string | null;
   timeout_secs: number;
   input_schema?: unknown;
+}
+
+export interface EgressEntry {
+  /** Milliseconds since the unix epoch. */
+  time: number;
+  verdict: "allow" | "deny";
+  target: string;
+}
+
+export interface EgressLog {
+  mode: "isolated" | "proxied" | "open";
+  allowed: string[];
+  entries: EgressEntry[];
 }

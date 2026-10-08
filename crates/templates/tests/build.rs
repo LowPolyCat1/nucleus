@@ -23,7 +23,7 @@ env = { HELLO_HOME = "/deps/hello" }
 path_env = { PATH = ["/deps/hello/bin"] }
 [build]
 lockfiles = ["deps.lock"]
-command = "mkdir -p bin && printf '#!/bin/sh\necho hello from $(cat /deps/hello/version)\n' > bin/hello-tool && chmod +x bin/hello-tool && cp /src/deps.lock version"
+command = "echo building; echo warn >&2; printf partial; mkdir -p bin && printf '#!/bin/sh\necho hello from $(cat /deps/hello/version)\n' > bin/hello-tool && chmod +x bin/hello-tool && cp /src/deps.lock version"
 "#,
     )
     .unwrap();
@@ -32,8 +32,15 @@ command = "mkdir -p bin && printf '#!/bin/sh\necho hello from $(cat /deps/hello/
         backend: &backend,
         root: store.path().into(),
     };
-    let first = builder.build(&manifest, repo.path(), "node:22-alpine").await.unwrap();
+    let lines = std::sync::Mutex::new(Vec::new());
+    let first = builder
+        .build_streaming(&manifest, repo.path(), "node:22-alpine", &|l| {
+            lines.lock().unwrap().push(l.to_string())
+        })
+        .await
+        .unwrap();
     assert!(first.built, "{}", first.log);
+    assert_eq!(builder.last_log("hello").unwrap(), first.log);
     let again = builder.build(&manifest, repo.path(), "node:22-alpine").await.unwrap();
     assert!(!again.built);
     assert_eq!(first.identity, again.identity);
@@ -76,6 +83,22 @@ command = "mkdir -p bin && printf '#!/bin/sh\necho hello from $(cat /deps/hello/
         .prune("hello", std::slice::from_ref(&second.identity))
         .await
         .unwrap();
+    assert!(builder.last_log("hello").is_some(), "prune keeps the last log");
+    // stdout and stderr interleave in arrival order; compare as a set.
+    let mut streamed = lines.into_inner().unwrap();
+    streamed.sort();
+    assert_eq!(streamed, vec!["building", "partial", "warn"]);
+
+    // A failing build keeps its log and reports it.
+    let mut failing = manifest.clone();
+    failing.build.command = "echo about to fail; exit 7".into();
+    let err = builder
+        .build(&failing, repo.path(), "node:22-alpine")
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("exit Some(7)"), "{err}");
+    assert!(err.to_string().contains("about to fail"));
+    assert_eq!(builder.last_log("hello").unwrap(), "about to fail\n");
     assert!(!first.path.exists());
     assert!(second.path.exists());
 }

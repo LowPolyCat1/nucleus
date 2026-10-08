@@ -94,7 +94,7 @@ impl BollardBackend {
     }
 
     fn egress_name(container: &str) -> String {
-        format!("{container}-egress")
+        crate::egress_name(container)
     }
 
     fn binds(&self, spec: &ContainerSpec) -> Result<Vec<String>> {
@@ -445,6 +445,29 @@ impl SandboxBackend for BollardBackend {
                 running: c.state.map(|s| s.to_string() == "running").unwrap_or(false),
             })
             .collect())
+    }
+
+    async fn logs(&self, name: &str, tail: usize) -> Result<String> {
+        use bollard::container::LogOutput;
+        let mut stream = self.docker.logs(
+            name,
+            Some(bollard::query_parameters::LogsOptions {
+                stdout: true,
+                stderr: true,
+                tail: tail.to_string(),
+                ..Default::default()
+            }),
+        );
+        let mut out = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            match chunk? {
+                LogOutput::StdOut { message } | LogOutput::StdErr { message } | LogOutput::Console { message } => {
+                    out.extend_from_slice(&message)
+                }
+                LogOutput::StdIn { .. } => {}
+            }
+        }
+        Ok(String::from_utf8_lossy(&out).into_owned())
     }
 
     async fn ensure_volume(&self, name: &str) -> Result<()> {

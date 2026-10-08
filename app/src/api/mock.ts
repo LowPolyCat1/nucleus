@@ -8,6 +8,8 @@ import type {
   CommitInfo,
   Conversation,
   DeleteOutcome,
+  EgressEntry,
+  EgressLog,
   Engine,
   FileDiff,
   HarnessEvent,
@@ -191,6 +193,8 @@ export class MockBackend implements Backend {
   private builtTemplates = new Set<string>();
   logs: LogEntry[] = [];
   skillStats = new Map<string, SkillStats>();
+  private buildLogs = new Map<string, string>();
+  private egress = new Map<string, EgressEntry[]>();
   /** Every call, for assertions: `[method, args]`. */
   calls: [string, unknown[]][] = [];
 
@@ -558,7 +562,12 @@ export class MockBackend implements Backend {
       if (!ws) throw `no workspace ${wid}`;
       for (const name of ws.templates) {
         this.emit({ type: "progress", message: `Preparing template ${name}` });
-        await this.sleep();
+        const lines = [`$ ${this.templateManifests().find((t) => t.name === name)?.build.command ?? "true"}`, `resolving dependencies for ${name}`, "done"];
+        for (const line of lines) {
+          await this.sleep();
+          this.emit({ type: "build_output", template: name, line });
+        }
+        this.buildLogs.set(name, lines.join("\n") + "\n");
         this.builtTemplates.add(`${wid}/${name}`);
         this.emit({ type: "progress", message: `Built template ${name} (${name}-0123456789ab)` });
       }
@@ -666,6 +675,10 @@ export class MockBackend implements Backend {
       let isError = false;
       try {
         await send({ type: "session_started", session_id: session, model: "mock", tools: ["Bash", "Edit"] });
+        const traffic = this.egress.get(cid) ?? [];
+        traffic.push({ time: Date.now(), verdict: "allow", target: "api.anthropic.com:443" });
+        if (/download|network|curl/i.test(prompt)) traffic.push({ time: Date.now(), verdict: "deny", target: "example.com:443" });
+        this.egress.set(cid, traffic);
         if (/fail/i.test(prompt)) {
           await send({ type: "stderr", text: "simulated failure" });
           await send({ type: "process_exited", code: 1 });
@@ -725,6 +738,21 @@ export class MockBackend implements Backend {
     return this.guard("cancel", [cid], () => {
       const r = this.running.get(cid);
       if (r) r.cancelled = true;
+    });
+  }
+
+  templateBuildLog(name: string) {
+    return this.guard("templateBuildLog", [name], () => this.buildLogs.get(name) ?? null);
+  }
+
+  egressLog(cid: string) {
+    return this.guard("egressLog", [cid], (): EgressLog => {
+      const c = this.conv(cid);
+      const ws = this.workspaces.find((w) => w.id === c.workspace_id)!;
+      const required = ["api.anthropic.com", "claude.ai", "platform.claude.com", "statsig.anthropic.com"];
+      if (ws.network.mode === "full") return { mode: "open", allowed: [], entries: [] };
+      const allowed = [...required, ...(ws.network.mode === "allowlist" ? ws.network.hosts : [])].sort();
+      return { mode: "proxied", allowed, entries: clone(this.egress.get(cid) ?? []) };
     });
   }
 

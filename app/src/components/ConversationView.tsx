@@ -4,6 +4,7 @@ import { emptyChat, toolSummary, type ChatItem } from "../lib/chat";
 import { formatCost, relativeTime, shortId } from "../lib/format";
 import { useApp } from "../store";
 import { DeleteDialog } from "./DeleteDialog";
+import { NetworkView } from "./NetworkView";
 import { DiffView } from "./DiffView";
 import { StatusDot } from "./Sidebar";
 import { Badge, Button, ErrorBox, errorText, inputBase, inputClass, Spinner } from "./ui";
@@ -73,10 +74,19 @@ export function ConversationView(props: { conversation: Conversation }) {
       <div class="flex gap-1 border-b border-zinc-800 px-6" role="tablist">
         <Tab active={state.tab === "chat"} onClick={() => actions.setTab("chat")} label="Chat" />
         <Tab active={state.tab === "changes"} onClick={() => actions.setTab("changes")} label="Changes" />
+        <Tab active={state.tab === "network"} onClick={() => actions.setTab("network")} label="Network" />
       </div>
-      <Show when={state.tab === "chat"} fallback={<ChangesView conversation={props.conversation} />}>
-        <ChatView conversation={props.conversation} />
-      </Show>
+      <Switch>
+        <Match when={state.tab === "chat"}>
+          <ChatView conversation={props.conversation} />
+        </Match>
+        <Match when={state.tab === "changes"}>
+          <ChangesView conversation={props.conversation} />
+        </Match>
+        <Match when={state.tab === "network"}>
+          <NetworkView conversation={props.conversation} />
+        </Match>
+      </Switch>
       <Show when={deleting()}>
         <DeleteDialog conversation={props.conversation} onClose={() => setDeleting(false)} />
       </Show>

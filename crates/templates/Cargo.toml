@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+futures.workspace = true
 anyhow.workspace = true
 hex.workspace = true
 nucleus-sandbox.workspace = true

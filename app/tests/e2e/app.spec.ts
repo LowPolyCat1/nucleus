@@ -137,3 +137,15 @@ test("hand-written template goes through review and becomes usable", async ({ ap
   await app.getByRole("tab", { name: "Templates & network" }).click();
   await expect(app.getByTestId("template-rust")).toBeVisible();
 });
+
+test("network tab reports blocked egress", async ({ app }) => {
+  await open(app);
+  await setApiKey(app);
+  await app.locator('[data-testid^="conversation-"]').first().click();
+  await app.getByLabel("Message").fill("curl something");
+  await app.getByTestId("send").click();
+  await expect(app.getByTestId("msg-turn")).toBeVisible();
+  await app.getByRole("tab", { name: "Network" }).click();
+  await expect(app.getByTestId("denied-summary")).toContainText("blocked");
+  await expect(app.locator('[data-testid="egress-row"][data-verdict="deny"]')).toContainText("example.com:443");
+});
