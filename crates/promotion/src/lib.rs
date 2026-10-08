@@ -77,6 +77,9 @@ impl Library {
         } else {
             GixVcs::init(path).await?
         };
+        // Library files run in Linux containers: never convert line endings, whatever the
+        // user's global git config says (Windows defaults to autocrlf=true).
+        nucleus_vcs::cli::git(path, &["config", "core.autocrlf", "false"]).await?;
         Ok(Self { kind, vcs })
     }
 

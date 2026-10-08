@@ -194,6 +194,8 @@ export interface CleanupReport {
   containers: string[];
   worktrees: string[];
   branches: string[];
+  /** Items that could not be removed. */
+  errors: string[];
 }
 
 /** Startup status. `error` is set when the container engine or data directory is unusable. */

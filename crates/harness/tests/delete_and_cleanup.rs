@@ -202,3 +202,45 @@ async fn running_status_is_reset_on_open() {
         ConversationStatus::Idle
     );
 }
+
+#[tokio::test]
+async fn cleanup_through_a_symlinked_data_dir_and_past_failures() {
+    let f = fixture(Engine::Docker).await;
+    // Reopen the harness through a symlink to its data dir (like /var -> /private/var on macOS).
+    let link = f.dir.path().join("link");
+    std::os::unix::fs::symlink(f.dir.path(), &link).unwrap();
+    let h = Harness::open(link.join("data"), f.backend.clone(), std::sync::Arc::new(|_| {}))
+        .await
+        .unwrap();
+    let ws = h.add_workspace(&f.repo, None).await.unwrap();
+    let lost = h.create_conversation(&ws.id, "main", "lost").await.unwrap();
+    let state_path = link.join("data/state.json");
+    let mut state = State::load(&state_path).unwrap();
+    state.conversations.clear();
+    state.save(&state_path).unwrap();
+    // An orphaned agent branch the user has checked out cannot be deleted; cleanup goes on.
+    let vcs = GixVcs::open(&f.repo).unwrap();
+    vcs.create_branch("agent/stuck", "main").await.unwrap();
+    nucleus_vcs::cli::git(&f.repo, &["checkout", "-q", "agent/stuck"])
+        .await
+        .unwrap();
+    let h = Harness::open(link.join("data"), f.backend.clone(), std::sync::Arc::new(|_| {}))
+        .await
+        .unwrap();
+
+    let report = h.cleanup_orphans().await.unwrap();
+    assert_eq!(report.containers, vec![lost.container.clone()]);
+    assert!(report.branches.contains(&lost.branch), "{report:?}");
+    assert_eq!(report.errors.len(), 1, "{report:?}");
+    assert!(report.errors[0].contains("agent/stuck"));
+    assert!(!lost.worktree.exists());
+    let branches = vcs
+        .branches()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect::<Vec<_>>();
+    assert!(branches.contains(&"agent/stuck".to_string()));
+    assert!(!branches.contains(&lost.branch));
+}

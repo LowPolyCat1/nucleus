@@ -354,6 +354,7 @@ export function createApp(backend: Backend, options: { toastMs?: number } = {}) 
       if (r) {
         const n = r.containers.length + r.worktrees.length + r.branches.length;
         toast("success", n ? `Removed ${n} orphaned resources` : "Nothing to clean up");
+        if (r.errors.length) toast("error", `Could not remove:\n${r.errors.join("\n")}`);
         await attempt(refresh);
       }
     },

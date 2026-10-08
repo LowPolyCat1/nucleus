@@ -468,3 +468,14 @@ describe("library authoring and feedback", () => {
     expect(r.getByTestId("skill-rust-style")).toBeInTheDocument();
   });
 });
+
+test("cleanup reports items it could not remove", async () => {
+  const user = userEvent.setup();
+  const r = renderApp();
+  await r.findByTestId("workspace-view");
+  r.backend.cleanupOrphans = async () => ({ containers: ["c1"], worktrees: [], branches: [], errors: ["branch agent/x: checked out"] });
+  await user.click(r.getByTestId("nav-settings"));
+  await user.click(r.getByTestId("cleanup"));
+  expect(await r.findByText("Removed 1 orphaned resources")).toBeInTheDocument();
+  expect(await r.findByText(/Could not remove:\s*branch agent\/x: checked out/)).toBeInTheDocument();
+});

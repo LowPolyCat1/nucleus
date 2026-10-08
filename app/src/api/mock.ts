@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   AppInfo,
   BranchInfo,
+  CleanupReport,
   CommitInfo,
   Conversation,
   DeleteOutcome,
@@ -904,7 +905,7 @@ export class MockBackend implements Backend {
   }
 
   cleanupOrphans() {
-    return this.guard("cleanupOrphans", [], () => ({ containers: [], worktrees: [], branches: [] }));
+    return this.guard("cleanupOrphans", [], (): CleanupReport => ({ containers: [], worktrees: [], branches: [], errors: [] }));
   }
 
   buildAgentImage() {

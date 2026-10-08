@@ -114,6 +114,8 @@ pub struct CleanupReport {
     pub containers: Vec<String>,
     pub worktrees: Vec<PathBuf>,
     pub branches: Vec<String>,
+    /// Items that could not be removed; cleanup continues past them.
+    pub errors: Vec<String>,
 }
 
 pub struct Harness {
@@ -921,55 +923,69 @@ impl Harness {
         let state = self.snapshot().await;
         let known: std::collections::HashSet<&str> = state.conversations.iter().map(|c| c.id.as_str()).collect();
         let mut report = CleanupReport::default();
+        let mut errors = Vec::new();
         for c in self.backend.list(None).await? {
             if let Some(id) = c.labels.get(CONVERSATION_LABEL)
                 && !known.contains(id.as_str())
             {
-                self.backend.remove(&c.name).await?;
-                report.containers.push(c.name);
-            }
-        }
-        for ws in &state.workspaces {
-            let Ok(vcs) = self.workspace_vcs(ws) else {
-                continue;
-            };
-            for wt in vcs.worktrees().await.unwrap_or_default() {
-                let orphan = wt.path.starts_with(self.paths.worktrees())
-                    && wt
-                        .branch
-                        .as_deref()
-                        .and_then(|b| self.strategy.conversation_of(b))
-                        .is_none_or(|id| !known.contains(id.as_str()));
-                if orphan {
-                    vcs.remove_worktree(&wt.path).await?;
-                    report.worktrees.push(wt.path);
+                match self.backend.remove(&c.name).await {
+                    Ok(()) => report.containers.push(c.name),
+                    Err(e) => errors.push(format!("container {}: {e:#}", c.name)),
                 }
             }
-            for b in vcs.branches().await? {
+        }
+        let worktrees_root = canonical(&self.paths.worktrees());
+        for ws in &state.workspaces {
+            let vcs = match self.workspace_vcs(ws) {
+                Ok(v) => v,
+                Err(e) => {
+                    errors.push(format!("workspace {}: {e:#}", ws.name));
+                    continue;
+                }
+            };
+            for wt in vcs.worktrees().await.unwrap_or_default() {
+                // Compare canonical paths: temp and home directories are often symlinks
+                // (/var -> /private/var on macOS).
+                let ours = canonical(&wt.path).starts_with(&worktrees_root);
+                let conversation = wt.branch.as_deref().and_then(|b| self.strategy.conversation_of(b));
+                if ours && conversation.is_none_or(|id| !known.contains(id.as_str())) {
+                    match vcs.remove_worktree(&wt.path).await {
+                        Ok(()) => report.worktrees.push(wt.path),
+                        Err(e) => errors.push(format!("worktree {}: {e:#}", wt.path.display())),
+                    }
+                }
+            }
+            for b in vcs.branches().await.unwrap_or_default() {
                 if let Some(id) = self.strategy.conversation_of(&b.name)
                     && b.kind == nucleus_vcs::BranchKind::Agent
                     && !known.contains(id.as_str())
                 {
-                    vcs.delete_branch(&b.name).await?;
-                    report.branches.push(b.name);
+                    match vcs.delete_branch(&b.name).await {
+                        Ok(()) => report.branches.push(b.name),
+                        Err(e) => errors.push(format!("branch {}: {e:#}", b.name)),
+                    }
                 }
             }
         }
-        if let Ok(rd) = std::fs::read_dir(self.paths.root.join("conversations")) {
-            for e in rd.flatten() {
-                if !known.contains(e.file_name().to_string_lossy().as_ref()) {
-                    std::fs::remove_dir_all(e.path()).ok();
+        for dir in [self.paths.root.join("conversations"), self.paths.worktrees()] {
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                for e in rd.flatten() {
+                    if !known.contains(e.file_name().to_string_lossy().as_ref()) {
+                        match std::fs::remove_dir_all(e.path()) {
+                            Ok(()) if dir == self.paths.worktrees() => report.worktrees.push(e.path()),
+                            Ok(()) => {}
+                            Err(err) => errors.push(format!("{}: {err}", e.path().display())),
+                        }
+                    }
                 }
             }
         }
-        if let Ok(rd) = std::fs::read_dir(self.paths.worktrees()) {
-            for e in rd.flatten() {
-                if !known.contains(e.file_name().to_string_lossy().as_ref()) {
-                    std::fs::remove_dir_all(e.path()).ok();
-                    report.worktrees.push(e.path());
-                }
-            }
+        for e in &errors {
+            tracing::warn!("cleanup: {e}");
         }
+        report.errors = errors;
+        report.worktrees.sort();
+        report.worktrees.dedup();
         Ok(report)
     }
 }
@@ -992,6 +1008,11 @@ fn reserved_env() -> BTreeMap<String, String> {
         owners.insert(k.into(), "the harness".into());
     }
     owners
+}
+
+/// Canonical form of a path for comparisons; the path itself when it does not exist.
+fn canonical(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 fn short_id() -> String {

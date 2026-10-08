@@ -70,3 +70,26 @@ async fn propose_approve_reject_revert() {
         .unwrap();
     assert_eq!(again.history(10).await.unwrap().len(), 3);
 }
+
+#[tokio::test]
+async fn library_files_keep_lf_even_with_autocrlf() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("lib");
+    let lib = Library::open_or_init(&path, LibraryKind::Tools).await.unwrap();
+    // A user config with autocrlf=true (the Windows default) must not affect the library.
+    nucleus_vcs::cli::git(&path, &["config", "--get", "core.autocrlf"])
+        .await
+        .map(|v| assert_eq!(v, "false"))
+        .unwrap();
+    let p = lib
+        .propose(NewProposal {
+            title: "t".into(),
+            rationale: String::new(),
+            changes: vec![change("t/run.sh", Some("#!/bin/sh\necho hi\n"))],
+            source: None,
+        })
+        .await
+        .unwrap();
+    lib.approve(&p.id).await.unwrap();
+    assert_eq!(std::fs::read(lib.path("t/run.sh")).unwrap(), b"#!/bin/sh\necho hi\n");
+}

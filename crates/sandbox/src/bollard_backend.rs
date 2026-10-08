@@ -256,6 +256,7 @@ impl SandboxBackend for BollardBackend {
     }
 
     async fn create(&self, spec: &ContainerSpec) -> Result<ContainerInfo> {
+        prepare_nested_mountpoints(spec)?;
         self.ensure_image(&spec.image).await?;
         for v in &spec.volumes {
             self.ensure_volume(&v.volume).await?;
@@ -458,5 +459,67 @@ impl SandboxBackend for BollardBackend {
             })
             .await?;
         Ok(())
+    }
+}
+
+/// Create mount points for binds nested inside other binds (e.g. `~/.claude/skills` inside the
+/// home mount, `node_modules` inside the worktree) on the host, as the current user. Otherwise
+/// a rootful engine creates them as root and the harness cannot delete them later.
+pub(crate) fn prepare_nested_mountpoints(spec: &ContainerSpec) -> Result<()> {
+    let targets = spec
+        .binds
+        .iter()
+        .map(|b| b.target.as_str())
+        .chain(spec.volumes.iter().map(|v| v.target.as_str()));
+    for target in targets {
+        let parent = spec
+            .binds
+            .iter()
+            .filter(|p| p.target != target && target.starts_with(&format!("{}/", p.target.trim_end_matches('/'))))
+            .max_by_key(|p| p.target.len());
+        if let Some(p) = parent
+            && p.source.is_dir()
+        {
+            let rel = &target[p.target.trim_end_matches('/').len() + 1..];
+            std::fs::create_dir_all(p.source.join(rel)).with_context(|| format!("creating mount point {target}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{BindMount, VolumeMount};
+
+    #[test]
+    fn nested_mountpoints_are_created_inside_their_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let wt = dir.path().join("wt");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&wt).unwrap();
+        let mut spec = ContainerSpec::new("c", "i");
+        let bind = |s: &std::path::Path, t: &str| BindMount {
+            source: s.into(),
+            target: t.into(),
+            mode: MountMode::ReadWrite,
+        };
+        spec.binds = vec![
+            bind(&home, "/home/agent"),
+            bind(&dir.path().join("skills"), "/home/agent/.claude/skills"),
+            bind(&wt, "/workspace/"),
+            bind(&dir.path().join("nm"), "/workspace/node_modules"),
+            bind(&dir.path().join("other"), "/workspacex"),
+        ];
+        spec.volumes = vec![VolumeMount {
+            volume: "v".into(),
+            target: "/home/agent/cache".into(),
+        }];
+        prepare_nested_mountpoints(&spec).unwrap();
+        assert!(home.join(".claude/skills").is_dir());
+        assert!(home.join("cache").is_dir());
+        assert!(wt.join("node_modules").is_dir());
+        assert!(!dir.path().join("x").exists());
     }
 }
