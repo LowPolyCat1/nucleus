@@ -1,6 +1,7 @@
 import { For, Match, onSettled, Show, Switch } from "solid-js";
 import { AppContext, conversationOf, type App as AppModel } from "../store";
 import { ConversationView } from "./ConversationView";
+import { LogsView } from "./LogsView";
 import { ProposalsView } from "./ProposalsView";
 import { SettingsView } from "./SettingsView";
 import { Sidebar } from "./Sidebar";
@@ -60,6 +61,9 @@ function Shell(props: { app: AppModel }) {
                 </Match>
                 <Match when={state.view === "skills"}>
                   <SkillsView />
+                </Match>
+                <Match when={state.view === "logs"}>
+                  <LogsView />
                 </Match>
                 <Match when={state.view === "settings"}>
                   <SettingsView />

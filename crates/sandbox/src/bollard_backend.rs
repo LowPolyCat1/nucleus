@@ -6,8 +6,7 @@ use async_trait::async_trait;
 use bollard::Docker;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::{
-    ContainerCreateBody, EndpointSettings, HostConfig, NetworkConnectRequest, NetworkCreateRequest,
-    VolumeCreateRequest,
+    ContainerCreateBody, EndpointSettings, HostConfig, NetworkConnectRequest, NetworkCreateRequest, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, ListContainersOptions, RemoveContainerOptions,
@@ -16,8 +15,8 @@ use futures::{FutureExt, StreamExt, TryStreamExt};
 
 use crate::network::EgressPlan;
 use crate::{
-    ContainerInfo, ContainerSpec, Engine, ExecChunk, ExecHandle, ExecSpec, MANAGED_LABEL,
-    MountMode, Result, SandboxBackend,
+    ContainerInfo, ContainerSpec, Engine, ExecChunk, ExecHandle, ExecSpec, MANAGED_LABEL, MountMode, Result,
+    SandboxBackend,
 };
 
 const EGRESS_JS: &str = include_str!("../support/egress.js");
@@ -54,16 +53,11 @@ pub struct BollardBackend {
 impl BollardBackend {
     pub async fn connect(socket: &Path, support_dir: impl Into<PathBuf>) -> Result<Self> {
         let docker = Docker::connect_with_unix(
-            socket
-                .to_str()
-                .ok_or_else(|| anyhow!("non utf-8 socket path"))?,
+            socket.to_str().ok_or_else(|| anyhow!("non utf-8 socket path"))?,
             300,
             bollard::API_DEFAULT_VERSION,
         )?;
-        let version = docker
-            .version()
-            .await
-            .context("container engine is not reachable")?;
+        let version = docker.version().await.context("container engine is not reachable")?;
         let is_podman = version
             .components
             .unwrap_or_default()
@@ -74,11 +68,7 @@ impl BollardBackend {
         std::fs::write(support_dir.join("egress.js"), EGRESS_JS)?;
         Ok(Self {
             docker,
-            engine: if is_podman {
-                Engine::Podman
-            } else {
-                Engine::Docker
-            },
+            engine: if is_podman { Engine::Podman } else { Engine::Docker },
             support_dir,
         })
     }
@@ -106,10 +96,7 @@ impl BollardBackend {
     fn binds(&self, spec: &ContainerSpec) -> Result<Vec<String>> {
         let mut binds = Vec::new();
         for b in &spec.binds {
-            let src = b
-                .source
-                .to_str()
-                .ok_or_else(|| anyhow!("non utf-8 mount source"))?;
+            let src = b.source.to_str().ok_or_else(|| anyhow!("non utf-8 mount source"))?;
             let opt = match b.mode {
                 MountMode::ReadOnly => "ro",
                 MountMode::ReadWrite => "rw",
@@ -221,9 +208,7 @@ impl BollardBackend {
             .await
         {
             Ok(()) => Ok(()),
-            Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404, ..
-            }) => Ok(()),
+            Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
@@ -416,10 +401,7 @@ impl SandboxBackend for BollardBackend {
         self.remove_container(name).await?;
         self.remove_container(&Self::egress_name(name)).await?;
         match self.docker.remove_network(&Self::network_name(name)).await {
-            Ok(())
-            | Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404, ..
-            }) => Ok(()),
+            Ok(()) | Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
@@ -439,12 +421,7 @@ impl SandboxBackend for BollardBackend {
             .await?;
         Ok(list
             .into_iter()
-            .filter(|c| {
-                c.labels
-                    .as_ref()
-                    .and_then(|l| l.get("nucleus.role"))
-                    .is_none()
-            })
+            .filter(|c| c.labels.as_ref().and_then(|l| l.get("nucleus.role")).is_none())
             .map(|c| ContainerInfo {
                 id: c.id.unwrap_or_default(),
                 name: c
@@ -466,10 +443,7 @@ impl SandboxBackend for BollardBackend {
         self.docker
             .create_volume(VolumeCreateRequest {
                 name: Some(name.into()),
-                labels: Some(HashMap::from([(
-                    MANAGED_LABEL.to_string(),
-                    "true".to_string(),
-                )])),
+                labels: Some(HashMap::from([(MANAGED_LABEL.to_string(), "true".to_string())])),
                 ..Default::default()
             })
             .await?;

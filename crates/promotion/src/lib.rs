@@ -120,11 +120,7 @@ impl Library {
                         #[cfg(unix)]
                         if c.executable {
                             use std::os::unix::fs::PermissionsExt;
-                            tokio::fs::set_permissions(
-                                &target,
-                                std::fs::Permissions::from_mode(0o755),
-                            )
-                            .await?;
+                            tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).await?;
                         }
                     }
                     None if target.is_dir() => tokio::fs::remove_dir_all(&target).await?,
@@ -172,9 +168,7 @@ impl Library {
     }
 
     pub async fn diff(&self, id: &str) -> Result<Vec<FileDiff>> {
-        self.vcs
-            .diff(MAIN, &format!("refs/heads/{PREFIX}{id}"))
-            .await
+        self.vcs.diff(MAIN, &format!("refs/heads/{PREFIX}{id}")).await
     }
 
     /// Apply a proposal to `main`. Returns the resulting commit.
@@ -243,8 +237,7 @@ fn validate_path(path: &str) -> Result<()> {
     let p = Path::new(path);
     let ok = !path.is_empty()
         && p.is_relative()
-        && p.components()
-            .all(|c| matches!(c, std::path::Component::Normal(_)))
+        && p.components().all(|c| matches!(c, std::path::Component::Normal(_)))
         && !path.starts_with(".git");
     if !ok {
         bail!("invalid library path {path:?}");

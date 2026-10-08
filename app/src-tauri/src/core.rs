@@ -33,9 +33,7 @@ pub struct AppState {
     pub conversations: Vec<nucleus_harness::Conversation>,
 }
 
-pub type Connector = Box<
-    dyn Fn(PathBuf) -> BoxFuture<'static, anyhow::Result<Arc<dyn SandboxBackend>>> + Send + Sync,
->;
+pub type Connector = Box<dyn Fn(PathBuf) -> BoxFuture<'static, anyhow::Result<Arc<dyn SandboxBackend>>> + Send + Sync>;
 
 /// Holds the harness once the container engine is reachable. Until then every command fails
 /// with a clear message and the UI offers a retry.
@@ -80,8 +78,7 @@ impl AppCore {
         }
         let result = async {
             let backend = (self.connector)(self.data_dir.join("engine-support")).await?;
-            let harness =
-                Arc::new(Harness::open(&self.data_dir, backend, self.sink.clone()).await?);
+            let harness = Arc::new(Harness::open(&self.data_dir, backend, self.sink.clone()).await?);
             Ok::<_, anyhow::Error>(harness)
         }
         .await;
@@ -92,11 +89,7 @@ impl AppCore {
                 let bg = h.clone();
                 tokio::spawn(async move {
                     match bg.cleanup_orphans().await {
-                        Ok(r)
-                            if !(r.containers.is_empty()
-                                && r.worktrees.is_empty()
-                                && r.branches.is_empty()) =>
-                        {
+                        Ok(r) if !(r.containers.is_empty() && r.worktrees.is_empty() && r.branches.is_empty()) => {
                             tracing::info!(?r, "removed orphaned resources")
                         }
                         Ok(_) => {}

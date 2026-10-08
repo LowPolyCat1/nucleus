@@ -27,35 +27,24 @@ async fn isolated_exec_mounts_and_stdin() {
         mode: MountMode::ReadWrite,
     });
     spec.workdir = Some("/workspace".into());
-    spec.labels
-        .insert("nucleus.conversation".into(), "test".into());
+    spec.labels.insert("nucleus.conversation".into(), "test".into());
     b.create(&spec).await.unwrap();
 
     let res = b
         .exec_collect(
             &name,
-            &ExecSpec::new([
-                "sh",
-                "-c",
-                "cat hello.txt; echo out > new.txt; echo err >&2; exit 3",
-            ]),
+            &ExecSpec::new(["sh", "-c", "cat hello.txt; echo out > new.txt; echo err >&2; exit 3"]),
         )
         .await
         .unwrap();
     assert_eq!(res.stdout_str(), "from host");
     assert_eq!(res.stderr_str(), "err\n");
     assert_eq!(res.exit_code, Some(3));
-    assert_eq!(
-        std::fs::read_to_string(ws.path().join("new.txt")).unwrap(),
-        "out\n"
-    );
+    assert_eq!(std::fs::read_to_string(ws.path().join("new.txt")).unwrap(), "out\n");
 
     // No network at all.
     let res = b
-        .exec_collect(
-            &name,
-            &ExecSpec::new(["sh", "-c", "ip -o link | grep -vc ': lo:'"]),
-        )
+        .exec_collect(&name, &ExecSpec::new(["sh", "-c", "ip -o link | grep -vc ': lo:'"]))
         .await
         .unwrap();
     assert_eq!(res.stdout_str().trim(), "0");

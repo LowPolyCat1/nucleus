@@ -62,8 +62,7 @@ impl TemplateManifest {
 
     pub fn load(dir: &Path) -> crate::Result<Self> {
         let path = dir.join(MANIFEST_FILE);
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         Self::parse(&text).with_context(|| format!("invalid {}", path.display()))
     }
 
@@ -83,9 +82,7 @@ impl TemplateManifest {
             let p = Path::new(path);
             if path.is_empty()
                 || p.is_absolute()
-                || !p
-                    .components()
-                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+                || !p.components().all(|c| matches!(c, std::path::Component::Normal(_)))
                 || path.starts_with(".git")
             {
                 bail!("worktree mount path {path:?} must be a plain relative path");
@@ -145,11 +142,14 @@ network = ["pypi.org", "files.pythonhosted.org"]
         .unwrap();
         assert_eq!(n.mount_path(), "/workspace/node_modules");
         assert!(
+            TemplateManifest::parse("name = \"a b\"\nmount = { mode = \"readonly\" }\n[build]\ncommand = \"x\"\n")
+                .is_err()
+        );
+        assert!(
             TemplateManifest::parse(
-                "name = \"a b\"\nmount = { mode = \"readonly\" }\n[build]\ncommand = \"x\"\n"
+                "name = \"a\"\nmount = { mode = \"worktree\", path = \"../x\" }\n[build]\ncommand = \"x\"\n"
             )
             .is_err()
         );
-        assert!(TemplateManifest::parse("name = \"a\"\nmount = { mode = \"worktree\", path = \"../x\" }\n[build]\ncommand = \"x\"\n").is_err());
     }
 }

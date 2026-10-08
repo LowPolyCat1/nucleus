@@ -52,20 +52,14 @@ mod tests {
     #[test]
     fn plans() {
         let req = vec!["api.anthropic.com".to_string()];
-        assert_eq!(
-            EgressPlan::for_policy(&NetworkPolicy::None, &[]),
-            EgressPlan::Isolated
-        );
+        assert_eq!(EgressPlan::for_policy(&NetworkPolicy::None, &[]), EgressPlan::Isolated);
         assert_eq!(
             EgressPlan::for_policy(&NetworkPolicy::None, &req),
             EgressPlan::Proxied { allow: req.clone() }
         );
         assert_eq!(
             EgressPlan::for_policy(
-                &NetworkPolicy::Allowlist(vec![
-                    "https://Registry.npmjs.org/".into(),
-                    "pypi.org:443".into()
-                ]),
+                &NetworkPolicy::Allowlist(vec!["https://Registry.npmjs.org/".into(), "pypi.org:443".into()]),
                 &req
             ),
             EgressPlan::Proxied {
@@ -76,9 +70,6 @@ mod tests {
                 ]
             }
         );
-        assert_eq!(
-            EgressPlan::for_policy(&NetworkPolicy::Full, &req),
-            EgressPlan::Open
-        );
+        assert_eq!(EgressPlan::for_policy(&NetworkPolicy::Full, &req), EgressPlan::Open);
     }
 }

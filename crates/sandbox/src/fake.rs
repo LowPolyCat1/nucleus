@@ -15,10 +15,7 @@ use async_trait::async_trait;
 use futures::{FutureExt, StreamExt};
 use tokio::io::AsyncReadExt;
 
-use crate::{
-    ContainerInfo, ContainerSpec, Engine, ExecChunk, ExecHandle, ExecSpec, MountMode, Result,
-    SandboxBackend,
-};
+use crate::{ContainerInfo, ContainerSpec, Engine, ExecChunk, ExecHandle, ExecSpec, MountMode, Result, SandboxBackend};
 
 #[derive(Debug, Clone)]
 struct FakeContainer {
@@ -67,11 +64,7 @@ impl FakeBackend {
     }
 
     pub fn spec(&self, name: &str) -> Option<ContainerSpec> {
-        self.containers
-            .lock()
-            .unwrap()
-            .get(name)
-            .map(|c| c.spec.clone())
+        self.containers.lock().unwrap().get(name).map(|c| c.spec.clone())
     }
 
     pub fn container_names(&self) -> Vec<String> {
@@ -130,11 +123,8 @@ fn map_str(c: &FakeContainer, s: &str) -> String {
                     rest.as_bytes()[pos - 1],
                     b':' | b' ' | b'=' | b'"' | b'\'' | b'\n' | b';' | b'('
                 );
-            let boundary_after = end == rest.len()
-                || matches!(
-                    rest.as_bytes()[end],
-                    b'/' | b':' | b' ' | b'"' | b'\'' | b'\n' | b';'
-                );
+            let boundary_after =
+                end == rest.len() || matches!(rest.as_bytes()[end], b'/' | b':' | b' ' | b'"' | b'\'' | b'\n' | b';');
             if boundary_before && boundary_after {
                 result.push_str(&rest[..pos]);
                 result.push_str(&src);
@@ -164,19 +154,14 @@ impl SandboxBackend for FakeBackend {
 
     async fn image_env(&self, image: &str) -> Result<Vec<String>> {
         self.ensure_image(image).await?;
-        Ok(vec![format!(
-            "PATH={}",
-            std::env::var("PATH").unwrap_or_default()
-        )])
+        Ok(vec![format!("PATH={}", std::env::var("PATH").unwrap_or_default())])
     }
 
     async fn create(&self, spec: &ContainerSpec) -> Result<ContainerInfo> {
         if let Some(msg) = self.fail_create.lock().unwrap().take() {
             bail!("{msg}");
         }
-        if spec.binds.iter().any(|b| b.mode == MountMode::Overlay)
-            && !self.engine.supports_overlay()
-        {
+        if spec.binds.iter().any(|b| b.mode == MountMode::Overlay) && !self.engine.supports_overlay() {
             bail!("overlay mounts require Podman");
         }
         for b in &spec.binds {
@@ -225,19 +210,12 @@ impl SandboxBackend for FakeBackend {
         let workdir = spec.workdir.clone().or(c.spec.workdir.clone());
         let mut env: BTreeMap<String, String> = c.spec.env.clone();
         env.extend(spec.env.clone());
-        let mut path: Vec<String> = self
-            .bin_dirs
-            .iter()
-            .map(|d| d.to_string_lossy().to_string())
-            .collect();
+        let mut path: Vec<String> = self.bin_dirs.iter().map(|d| d.to_string_lossy().to_string()).collect();
         if let Some(p) = env.remove("PATH") {
             path.push(map_str(&c, &p));
         }
         path.push(std::env::var("PATH").unwrap_or_default());
-        let (prog, args) = spec
-            .cmd
-            .split_first()
-            .ok_or_else(|| anyhow!("empty command"))?;
+        let (prog, args) = spec.cmd.split_first().ok_or_else(|| anyhow!("empty command"))?;
         let mut cmd = tokio::process::Command::new(map_str(&c, prog));
         cmd.args(args.iter().map(|a| map_str(&c, a)));
         for (k, v) in &env {
@@ -245,8 +223,7 @@ impl SandboxBackend for FakeBackend {
         }
         cmd.env("PATH", path.join(":"));
         if let Some(w) = workdir {
-            let host = map_path(&c, &w)
-                .ok_or_else(|| anyhow!("workdir {w} is not mounted in the fake container"))?;
+            let host = map_path(&c, &w).ok_or_else(|| anyhow!("workdir {w} is not mounted in the fake container"))?;
             cmd.current_dir(host);
         }
         cmd.stdin(if spec.stdin {
@@ -307,9 +284,7 @@ impl SandboxBackend for FakeBackend {
             .lock()
             .unwrap()
             .values()
-            .filter(|c| {
-                label.is_none_or(|(k, v)| c.spec.labels.get(k).map(String::as_str) == Some(v))
-            })
+            .filter(|c| label.is_none_or(|(k, v)| c.spec.labels.get(k).map(String::as_str) == Some(v)))
             .map(|c| ContainerInfo {
                 id: format!("fake-{}", c.spec.name),
                 name: c.spec.name.clone(),
@@ -345,10 +320,7 @@ mod tests {
         spec.workdir = Some("/workspace".into());
         spec.env.insert("OUT".into(), "/workspace/out.txt".into());
         b.create(&spec).await.unwrap();
-        assert!(
-            b.create(&spec).await.is_err(),
-            "duplicate names are rejected"
-        );
+        assert!(b.create(&spec).await.is_err(), "duplicate names are rejected");
         let r = b
             .exec_collect("c", &ExecSpec::new(["sh", "-c", "pwd > $OUT; echo hi"]))
             .await

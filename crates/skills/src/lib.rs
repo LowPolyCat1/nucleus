@@ -106,10 +106,7 @@ impl SkillLibrary {
                 (hits > 0).then(|| (hits as f64 * s.stats.reliability(), s))
             })
             .collect();
-        scored.sort_by(|a, b| {
-            b.0.total_cmp(&a.0)
-                .then_with(|| a.1.meta.name.cmp(&b.1.meta.name))
-        });
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.meta.name.cmp(&b.1.meta.name)));
         Ok(scored.into_iter().take(limit).map(|(_, s)| s).collect())
     }
 
@@ -131,12 +128,7 @@ impl SkillLibrary {
     }
 
     /// Propose creating or replacing a skill. `content` is the full SKILL.md text.
-    pub async fn propose_upsert(
-        &self,
-        content: &str,
-        rationale: &str,
-        source: Option<String>,
-    ) -> Result<Proposal> {
+    pub async fn propose_upsert(&self, content: &str, rationale: &str, source: Option<String>) -> Result<Proposal> {
         let skill = parse_skill(content)?;
         let name = skill.meta.name.clone();
         validate_name(&name)?;
@@ -155,12 +147,7 @@ impl SkillLibrary {
             .await
     }
 
-    pub async fn propose_delete(
-        &self,
-        name: &str,
-        rationale: &str,
-        source: Option<String>,
-    ) -> Result<Proposal> {
+    pub async fn propose_delete(&self, name: &str, rationale: &str, source: Option<String>) -> Result<Proposal> {
         validate_name(name)?;
         if !self.library.root().join(name).exists() {
             bail!("no skill named {name}");
@@ -204,9 +191,7 @@ pub fn validate_name(name: &str) -> Result<()> {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         && !name.starts_with('-');
     if !ok {
-        bail!(
-            "skill name {name:?} must be lowercase letters, digits and '-', at most 64 characters"
-        );
+        bail!("skill name {name:?} must be lowercase letters, digits and '-', at most 64 characters");
     }
     Ok(())
 }

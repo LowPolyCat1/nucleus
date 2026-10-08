@@ -2,11 +2,14 @@
 
 pub mod commands;
 pub mod core;
+pub mod logging;
 pub mod settings;
 
 use std::sync::Arc;
 
 use tauri::{Emitter, Manager};
+
+struct LogGuard(#[allow(dead_code)] std::sync::Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>);
 
 /// Event the frontend listens on (`EVENT_NAME` in `src/api/tauri.ts`).
 pub const EVENT_NAME: &str = "nucleus://event";
@@ -19,17 +22,20 @@ pub fn run() {
                 Some(d) => d.into(),
                 None => app.path().app_data_dir()?,
             };
+            let logs = logging::LogBuffer::new(2000);
+            if let Some(guard) = logging::init(&data_dir, logs.clone()) {
+                // Keep the file writer alive for the life of the app.
+                app.manage(LogGuard(std::sync::Mutex::new(Some(guard))));
+            }
+            app.manage(logs);
+            tracing::info!(data_dir = %data_dir.display(), "nucleus starting");
             let handle = app.handle().clone();
             let sink: nucleus_harness::EventSink = Arc::new(move |event| {
                 if let Err(e) = handle.emit(EVENT_NAME, &event) {
                     tracing::warn!("emitting event failed: {e}");
                 }
             });
-            app.manage(core::AppCore::new(
-                data_dir,
-                core::AppCore::engine_connector(),
-                sink,
-            ));
+            app.manage(core::AppCore::new(data_dir, core::AppCore::engine_connector(), sink));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -64,6 +70,7 @@ pub fn run() {
             commands::skills,
             commands::cleanup_orphans,
             commands::build_agent_image,
+            commands::recent_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nucleus");

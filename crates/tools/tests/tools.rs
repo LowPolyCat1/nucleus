@@ -16,7 +16,11 @@ fn write_tool(dir: &std::path::Path, name: &str, test: &str) {
         ),
     )
     .unwrap();
-    std::fs::write(d.join("greet.sh"), "read input; echo \"hello $(echo \"$input\" | sed 's/.*\"who\":\"\\([^\"]*\\)\".*/\\1/')\"\n").unwrap();
+    std::fs::write(
+        d.join("greet.sh"),
+        "read input; echo \"hello $(echo \"$input\" | sed 's/.*\"who\":\"\\([^\"]*\\)\".*/\\1/')\"\n",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -29,10 +33,7 @@ fn registry_and_index() {
     assert_eq!(tools.len(), 1);
     let index = tools_index(&tools);
     assert_eq!(index[0]["dir"], "/nucleus/tools/greet");
-    assert_eq!(
-        index[0]["input_schema"]["properties"]["who"]["type"],
-        "string"
-    );
+    assert_eq!(index[0]["input_schema"]["properties"]["who"]["type"], "string");
 }
 
 /// Talks to the MCP server over stdio with node on the host.
@@ -85,15 +86,8 @@ fn mcp_server_protocol() {
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(
-        names,
-        ["propose_skill", "propose_tool", "propose_template", "greet"]
-    );
-    let res = call(
-        3,
-        "tools/call",
-        json!({"name": "greet", "arguments": {"who": "ada"}}),
-    );
+    assert_eq!(names, ["propose_skill", "propose_tool", "propose_template", "greet"]);
+    let res = call(3, "tools/call", json!({"name": "greet", "arguments": {"who": "ada"}}));
     assert_eq!(res["result"]["content"][0]["text"], "hello ada\n");
     assert_eq!(res["result"]["isError"], false);
     let res = call(
@@ -107,9 +101,7 @@ fn mcp_server_protocol() {
             .unwrap()
             .contains("recorded")
     );
-    let proposals: Vec<_> = std::fs::read_dir(outbox.join("proposals"))
-        .unwrap()
-        .collect();
+    let proposals: Vec<_> = std::fs::read_dir(outbox.join("proposals")).unwrap().collect();
     assert_eq!(proposals.len(), 1);
     let res = call(
         5,
@@ -181,10 +173,7 @@ async fn sandboxed_call_and_promotion() {
     lib.approve(&report.proposal.id).await.unwrap();
 
     let tools = load_registry(lib.root());
-    let out = tools[0]
-        .call(&backend, &name, json!({"who": "grace"}))
-        .await
-        .unwrap();
+    let out = tools[0].call(&backend, &name, json!({"who": "grace"})).await.unwrap();
     backend.remove(&name).await.unwrap();
     assert_eq!(
         out,

@@ -9,8 +9,7 @@ use crate::cli::{git, git_output};
 use crate::diff::render;
 use crate::strategy::BranchStrategy;
 use crate::{
-    BranchInfo, CommitInfo, FileDiff, FileStatus, MergeOutcome, NamespacedStrategy, Result, Vcs,
-    WorktreeInfo,
+    BranchInfo, CommitInfo, FileDiff, FileStatus, MergeOutcome, NamespacedStrategy, Result, Vcs, WorktreeInfo,
 };
 
 /// [`Vcs`] implementation backed by gix, with git CLI fallback for worktrees and merges.
@@ -27,10 +26,7 @@ impl GixVcs {
         Self::open_with_strategy(path, Arc::new(NamespacedStrategy))
     }
 
-    pub fn open_with_strategy(
-        path: impl AsRef<Path>,
-        strategy: Arc<dyn BranchStrategy>,
-    ) -> Result<Self> {
+    pub fn open_with_strategy(path: impl AsRef<Path>, strategy: Arc<dyn BranchStrategy>) -> Result<Self> {
         let repo = gix::discover(path.as_ref())
             .with_context(|| format!("no git repository at {}", path.as_ref().display()))?;
         let workdir = repo
@@ -118,9 +114,7 @@ fn walk(
 ) -> Result<Vec<CommitInfo>> {
     let walk = repo
         .rev_walk(tips)
-        .sorting(gix::revision::walk::Sorting::ByCommitTime(
-            Default::default(),
-        ))
+        .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
         .with_hidden(hidden)
         .all()
         .map_err(|e| anyhow!("{e}"))?;
@@ -136,11 +130,7 @@ fn read_blob(repo: &gix::Repository, id: gix::ObjectId) -> Result<Vec<u8>> {
     if id.is_null() {
         return Ok(Vec::new());
     }
-    Ok(repo
-        .find_object(id)
-        .map_err(|e| anyhow!("{e}"))?
-        .detach()
-        .data)
+    Ok(repo.find_object(id).map_err(|e| anyhow!("{e}"))?.detach().data)
 }
 
 #[async_trait]
@@ -156,11 +146,7 @@ impl Vcs for GixVcs {
     async fn branches(&self) -> Result<Vec<BranchInfo>> {
         let strategy = self.strategy.clone();
         self.blocking(move |repo| {
-            let head = repo
-                .head_name()
-                .ok()
-                .flatten()
-                .map(|n| n.as_bstr().to_string());
+            let head = repo.head_name().ok().flatten().map(|n| n.as_bstr().to_string());
             let platform = repo.references().map_err(|e| anyhow!("{e}"))?;
             let mut out = Vec::new();
             for r in platform.all().map_err(|e| anyhow!("{e}"))? {
@@ -213,9 +199,7 @@ impl Vcs for GixVcs {
 
     async fn delete_branch(&self, name: &str) -> Result<()> {
         // `git branch -D` also cleans up config sections and the reflog.
-        git(&self.workdir, &["branch", "-D", "--", name])
-            .await
-            .map(drop)
+        git(&self.workdir, &["branch", "-D", "--", name]).await.map(drop)
     }
 
     async fn log(&self, rev: &str, limit: usize) -> Result<Vec<CommitInfo>> {
@@ -230,10 +214,7 @@ impl Vcs for GixVcs {
     async fn graph(&self, tips: &[String], limit: usize) -> Result<Vec<CommitInfo>> {
         let tips = tips.to_vec();
         self.blocking(move |repo| {
-            let ids = tips
-                .iter()
-                .map(|t| resolve_id(&repo, t))
-                .collect::<Result<Vec<_>>>()?;
+            let ids = tips.iter().map(|t| resolve_id(&repo, t)).collect::<Result<Vec<_>>>()?;
             if ids.is_empty() {
                 return Ok(Vec::new());
             }
@@ -317,14 +298,7 @@ impl Vcs for GixVcs {
                         id,
                         entry_mode,
                         ..
-                    } => (
-                        location,
-                        None,
-                        FileStatus::Modified,
-                        previous_id,
-                        id,
-                        entry_mode,
-                    ),
+                    } => (location, None, FileStatus::Modified, previous_id, id, entry_mode),
                     C::Rewrite {
                         source_location,
                         location,
@@ -336,11 +310,7 @@ impl Vcs for GixVcs {
                     } => (
                         location,
                         Some(source_location.to_string()),
-                        if copy {
-                            FileStatus::Copied
-                        } else {
-                            FileStatus::Renamed
-                        },
+                        if copy { FileStatus::Copied } else { FileStatus::Renamed },
                         source_id,
                         id,
                         entry_mode,
@@ -370,23 +340,15 @@ impl Vcs for GixVcs {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let p = path
-            .to_str()
-            .ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
+        let p = path.to_str().ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
         git(&self.workdir, &["worktree", "add", "--quiet", p, branch])
             .await
             .map(drop)
     }
 
     async fn remove_worktree(&self, path: &Path) -> Result<()> {
-        let p = path
-            .to_str()
-            .ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
-        let out = git_output(
-            &self.workdir,
-            &["worktree", "remove", "--force", "--force", p],
-        )
-        .await?;
+        let p = path.to_str().ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
+        let out = git_output(&self.workdir, &["worktree", "remove", "--force", "--force", p]).await?;
         if !out.status.success() {
             // The directory may already be gone (crash, manual delete); drop the stale metadata.
             if path.exists() {
@@ -447,18 +409,14 @@ impl Vcs for GixVcs {
         .chain(self.worktrees().await?)
         .find(|w| w.branch.as_deref() == Some(into));
         if let Some(wt) = checked_out {
-            let out =
-                git_output(&wt.path, &["merge", "--no-edit", "-m", message, &from_id]).await?;
+            let out = git_output(&wt.path, &["merge", "--no-edit", "-m", message, &from_id]).await?;
             if !out.status.success() {
                 let conflicts = git(&wt.path, &["diff", "--name-only", "--diff-filter=U"])
                     .await
                     .unwrap_or_default();
                 git_output(&wt.path, &["merge", "--abort"]).await.ok();
                 if conflicts.is_empty() {
-                    bail!(
-                        "merge failed: {}",
-                        String::from_utf8_lossy(&out.stderr).trim()
-                    );
+                    bail!("merge failed: {}", String::from_utf8_lossy(&out.stderr).trim());
                 }
                 return Ok(MergeOutcome::Conflicts {
                     paths: conflicts.lines().map(str::to_string).collect(),
@@ -479,30 +437,18 @@ impl Vcs for GixVcs {
         // Not checked out anywhere: merge without touching any working copy.
         let out = git_output(
             &self.workdir,
-            &[
-                "merge-tree",
-                "--write-tree",
-                "--name-only",
-                &into_id,
-                &from_id,
-            ],
+            &["merge-tree", "--write-tree", "--name-only", &into_id, &from_id],
         )
         .await?;
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let mut lines = stdout.lines();
         let tree = lines.next().unwrap_or_default().to_string();
         if out.status.code() == Some(1) {
-            let paths = lines
-                .take_while(|l| !l.is_empty())
-                .map(str::to_string)
-                .collect();
+            let paths = lines.take_while(|l| !l.is_empty()).map(str::to_string).collect();
             return Ok(MergeOutcome::Conflicts { paths });
         }
         if !out.status.success() {
-            bail!(
-                "merge-tree failed: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            );
+            bail!("merge-tree failed: {}", String::from_utf8_lossy(&out.stderr).trim());
         }
         let commit = git(
             &self.workdir,

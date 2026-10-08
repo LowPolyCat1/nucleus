@@ -47,18 +47,12 @@ impl Tool for ScriptTool {
         self.manifest.input_schema.as_ref().expect("validated")
     }
 
-    async fn call(
-        &self,
-        sandbox: &dyn SandboxBackend,
-        container: &str,
-        input: Value,
-    ) -> crate::Result<ToolOutput> {
+    async fn call(&self, sandbox: &dyn SandboxBackend, container: &str, input: Value) -> crate::Result<ToolOutput> {
         let input = input.to_string();
         let mut spec = ExecSpec::new(["sh", "-c", self.manifest.run.as_str()]);
         spec.workdir = Some(self.container_dir.clone());
         spec.env.insert("NUCLEUS_TOOL_INPUT".into(), input.clone());
-        spec.env
-            .insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
+        spec.env.insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
         spec.stdin = true;
         let mut handle = sandbox.exec(container, &spec).await?;
         if let Some(mut stdin) = handle.stdin.take() {

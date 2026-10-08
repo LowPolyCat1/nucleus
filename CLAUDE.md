@@ -45,6 +45,8 @@ None of the default stages need a container engine, an API key or a display:
   handlers, `onSettled` or effect apply.
 - Props are values: `<X v={sig()} />`, never destructure props.
 - DOM updates land after a microtask: in tests use `findBy*` or `flush()` before asserting.
+- A signal set in a handler still reads its old value in that same handler; pass the new value
+  along explicitly instead of re-reading it.
 - `<select value>` does not stick when options render later; use `selected` on `<option>`.
 - Store proxies cannot be `structuredClone`d.
 - `tests/unit/solid-contract.test.tsx` pins the framework behaviour the UI relies on.

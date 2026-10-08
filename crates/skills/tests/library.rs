@@ -12,10 +12,7 @@ async fn propose_approve_search_and_track() {
         .await
         .unwrap();
     assert_eq!(p.title, "Add skill cargo-tests");
-    assert!(
-        lib.list().unwrap().is_empty(),
-        "not visible before approval"
-    );
+    assert!(lib.list().unwrap().is_empty(), "not visible before approval");
     lib.library().approve(&p.id).await.unwrap();
 
     let other = "---\nname: py-lint\ndescription: Lint Python code with ruff\n---\nruff check .\n";
@@ -23,10 +20,7 @@ async fn propose_approve_search_and_track() {
     lib.library().approve(&p2.id).await.unwrap();
 
     assert_eq!(lib.list().unwrap().len(), 2);
-    assert_eq!(
-        lib.load("cargo-tests").unwrap().body,
-        "Run `cargo nextest run`.\n"
-    );
+    assert_eq!(lib.load("cargo-tests").unwrap().body, "Run `cargo nextest run`.\n");
     let hits = lib.search("how do I test rust changes", 5).unwrap();
     assert_eq!(hits[0].meta.name, "cargo-tests");
     assert!(
@@ -37,9 +31,7 @@ async fn propose_approve_search_and_track() {
 
     lib.usage().record_use("py-lint").unwrap();
     for _ in 0..3 {
-        lib.usage()
-            .record_outcome("py-lint", Outcome::Failure)
-            .unwrap();
+        lib.usage().record_outcome("py-lint", Outcome::Failure).unwrap();
     }
     let prune = lib.prune_candidates(90).unwrap();
     assert_eq!(prune.len(), 1);
@@ -56,10 +48,7 @@ async fn propose_approve_search_and_track() {
         .await
         .unwrap();
     assert_eq!(upd.title, "Update skill cargo-tests");
-    let del = lib
-        .propose_delete("py-lint", "harmful", None)
-        .await
-        .unwrap();
+    let del = lib.propose_delete("py-lint", "harmful", None).await.unwrap();
     lib.library().approve(&del.id).await.unwrap();
     assert_eq!(lib.list().unwrap().len(), 1);
     assert!(

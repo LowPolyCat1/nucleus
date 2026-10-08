@@ -9,19 +9,12 @@ use nucleus_sandbox::{Engine, MountMode, NetworkPolicy};
 async fn outbox_becomes_proposals() {
     let f = fixture(Engine::Docker).await;
     let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
-    let conv = f
-        .harness
-        .create_conversation(&ws.id, "main", "t")
-        .await
-        .unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
     f.mode("propose");
     f.harness.send_message(&conv.id, "learn").await.unwrap();
 
     let proposals = f.harness.proposals().await.unwrap();
-    let mut kinds: Vec<_> = proposals
-        .iter()
-        .map(|p| (p.kind, p.title.clone()))
-        .collect();
+    let mut kinds: Vec<_> = proposals.iter().map(|p| (p.kind, p.title.clone())).collect();
     kinds.sort_by(|a, b| a.1.cmp(&b.1));
     assert_eq!(
         kinds,
@@ -31,11 +24,7 @@ async fn outbox_becomes_proposals() {
             (LibraryKind::Tools, "Add tool greet".to_string()),
         ]
     );
-    assert!(
-        proposals
-            .iter()
-            .all(|p| p.source.as_deref() == Some(conv.id.as_str()))
-    );
+    assert!(proposals.iter().all(|p| p.source.as_deref() == Some(conv.id.as_str())));
     let failures: Vec<_> = f
         .events()
         .into_iter()
@@ -53,55 +42,26 @@ async fn outbox_becomes_proposals() {
     assert!(failures.iter().any(|(_, e)| e.contains("frontmatter")));
     assert!(failures.iter().any(|(_, e)| e.contains("unreadable")));
     // Entries are processed once.
-    let outbox = f
-        .dir
-        .path()
-        .join("data/conversations")
-        .join(&conv.id)
-        .join("outbox");
-    assert_eq!(
-        std::fs::read_dir(outbox.join("proposals")).unwrap().count(),
-        0
-    );
-    assert_eq!(
-        std::fs::read_dir(outbox.join("processed")).unwrap().count(),
-        6
-    );
+    let outbox = f.dir.path().join("data/conversations").join(&conv.id).join("outbox");
+    assert_eq!(std::fs::read_dir(outbox.join("proposals")).unwrap().count(), 0);
+    assert_eq!(std::fs::read_dir(outbox.join("processed")).unwrap().count(), 6);
     f.mode("noop");
     f.harness.send_message(&conv.id, "again").await.unwrap();
     assert_eq!(f.harness.proposals().await.unwrap().len(), 3);
 
     // Nothing is live before approval.
     assert!(f.harness.skills().list().unwrap().is_empty());
-    let support = f
-        .dir
-        .path()
-        .join("data/conversations")
-        .join(&conv.id)
-        .join("support");
+    let support = f.dir.path().join("data/conversations").join(&conv.id).join("support");
     assert_eq!(
-        std::fs::read_to_string(support.join("tools.json"))
-            .unwrap()
-            .trim(),
+        std::fs::read_to_string(support.join("tools.json")).unwrap().trim(),
         "[]"
     );
 
-    let tool = proposals
-        .iter()
-        .find(|p| p.kind == LibraryKind::Tools)
-        .unwrap();
-    let detail = f
-        .harness
-        .proposal(LibraryKind::Tools, &tool.id)
-        .await
-        .unwrap();
+    let tool = proposals.iter().find(|p| p.kind == LibraryKind::Tools).unwrap();
+    let detail = f.harness.proposal(LibraryKind::Tools, &tool.id).await.unwrap();
     assert_eq!(detail.diff[0].path, "greet/tool.toml");
     assert!(detail.proposal.rationale.contains("Test passed"));
-    let commit = f
-        .harness
-        .approve(LibraryKind::Tools, &tool.id)
-        .await
-        .unwrap();
+    let commit = f.harness.approve(LibraryKind::Tools, &tool.id).await.unwrap();
     assert!(
         std::fs::read_to_string(support.join("tools.json"))
             .unwrap()
@@ -109,51 +69,24 @@ async fn outbox_becomes_proposals() {
         "index refreshed"
     );
 
-    let skill = proposals
-        .iter()
-        .find(|p| p.kind == LibraryKind::Skills)
-        .unwrap();
-    f.harness
-        .approve(LibraryKind::Skills, &skill.id)
-        .await
-        .unwrap();
-    assert_eq!(
-        f.harness.skills().list().unwrap()[0].meta.name,
-        "rust-tests"
-    );
+    let skill = proposals.iter().find(|p| p.kind == LibraryKind::Skills).unwrap();
+    f.harness.approve(LibraryKind::Skills, &skill.id).await.unwrap();
+    assert_eq!(f.harness.skills().list().unwrap()[0].meta.name, "rust-tests");
 
-    let tpl = proposals
-        .iter()
-        .find(|p| p.kind == LibraryKind::Templates)
-        .unwrap();
-    f.harness
-        .reject(LibraryKind::Templates, &tpl.id)
-        .await
-        .unwrap();
+    let tpl = proposals.iter().find(|p| p.kind == LibraryKind::Templates).unwrap();
+    f.harness.reject(LibraryKind::Templates, &tpl.id).await.unwrap();
     assert!(f.harness.proposals().await.unwrap().is_empty());
     assert!(
-        f.harness
-            .approve(LibraryKind::Templates, &tpl.id)
-            .await
-            .is_err(),
+        f.harness.approve(LibraryKind::Templates, &tpl.id).await.is_err(),
         "rejected proposals are gone"
     );
 
     f.harness.revert(LibraryKind::Tools, &commit).await.unwrap();
     assert_eq!(
-        std::fs::read_to_string(support.join("tools.json"))
-            .unwrap()
-            .trim(),
+        std::fs::read_to_string(support.join("tools.json")).unwrap().trim(),
         "[]"
     );
-    assert_eq!(
-        f.harness
-            .history(LibraryKind::Tools, 10)
-            .await
-            .unwrap()
-            .len(),
-        3
-    );
+    assert_eq!(f.harness.history(LibraryKind::Tools, 10).await.unwrap().len(), 3);
 }
 
 async fn add_template(h: &Harness, name: &str, toml: &str) {
@@ -193,7 +126,12 @@ async fn templates_are_built_validated_and_mounted() {
         "name = \"over\"\nmount = { mode = \"overlay\" }\n[build]\ncommand = \"true\"\n",
     )
     .await;
-    add_template(&f.harness, "failing", "name = \"failing\"\nmount = { mode = \"readonly\" }\n[build]\ncommand = \"echo nope >&2; exit 3\"\n").await;
+    add_template(
+        &f.harness,
+        "failing",
+        "name = \"failing\"\nmount = { mode = \"readonly\" }\n[build]\ncommand = \"echo nope >&2; exit 3\"\n",
+    )
+    .await;
     assert_eq!(f.harness.available_templates().len(), 6);
 
     let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
@@ -201,11 +139,7 @@ async fn templates_are_built_validated_and_mounted() {
     assert!(
         err(f
             .harness
-            .configure_workspace(
-                &ws.id,
-                vec!["tool".into(), "clash".into()],
-                NetworkPolicy::None
-            )
+            .configure_workspace(&ws.id, vec!["tool".into(), "clash".into()], NetworkPolicy::None)
             .await)
         .contains("both set TOOL_HOME")
     );
@@ -231,41 +165,25 @@ async fn templates_are_built_validated_and_mounted() {
     );
     assert!(
         f.harness
-            .configure_workspace(
-                &ws.id,
-                vec!["tool".into(), "tool".into()],
-                NetworkPolicy::None
-            )
+            .configure_workspace(&ws.id, vec!["tool".into(), "tool".into()], NetworkPolicy::None)
             .await
             .is_err()
     );
 
     let allow = NetworkPolicy::Allowlist(vec!["registry.npmjs.org".into()]);
     f.harness
-        .configure_workspace(
-            &ws.id,
-            vec!["tool".into(), "nodemods".into()],
-            allow.clone(),
-        )
+        .configure_workspace(&ws.id, vec!["tool".into(), "nodemods".into()], allow.clone())
         .await
         .unwrap();
     let status = f.harness.template_status(&ws.id).await.unwrap();
     assert!(status.iter().all(|s| !s.fresh));
 
-    let conv = f
-        .harness
-        .create_conversation(&ws.id, "main", "t")
-        .await
-        .unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
     let status = f.harness.template_status(&ws.id).await.unwrap();
     assert!(status.iter().all(|s| s.fresh), "{status:?}");
     let spec = f.backend.spec(&conv.container).unwrap();
     assert_eq!(spec.network, allow);
-    let tool = spec
-        .binds
-        .iter()
-        .find(|b| b.target == "/deps/tool")
-        .unwrap();
+    let tool = spec.binds.iter().find(|b| b.target == "/deps/tool").unwrap();
     assert_eq!(tool.mode, MountMode::ReadOnly);
     assert_eq!(
         std::fs::read_to_string(tool.source.join("bin/version")).unwrap(),
@@ -286,11 +204,7 @@ async fn templates_are_built_validated_and_mounted() {
     commit_file(&f.repo, "deps.lock", "v2\n", "bump").await;
     let status = f.harness.template_status(&ws.id).await.unwrap();
     assert!(!status.iter().find(|s| s.name == "tool").unwrap().fresh);
-    let conv2 = f
-        .harness
-        .create_conversation(&ws.id, "main", "t2")
-        .await
-        .unwrap();
+    let conv2 = f.harness.create_conversation(&ws.id, "main", "t2").await.unwrap();
     let tool2 = f
         .backend
         .spec(&conv2.container)
@@ -309,11 +223,7 @@ async fn templates_are_built_validated_and_mounted() {
         .configure_workspace(&ws.id, vec!["failing".into()], NetworkPolicy::None)
         .await
         .unwrap();
-    let e = f
-        .harness
-        .create_conversation(&ws.id, "main", "t3")
-        .await
-        .unwrap_err();
+    let e = f.harness.create_conversation(&ws.id, "main", "t3").await.unwrap_err();
     assert!(format!("{e:#}").contains("nope"));
 }
 
@@ -331,18 +241,10 @@ async fn overlay_templates_work_on_podman() {
         .configure_workspace(&ws.id, vec!["over".into()], NetworkPolicy::Full)
         .await
         .unwrap();
-    let conv = f
-        .harness
-        .create_conversation(&ws.id, "main", "t")
-        .await
-        .unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
     let spec = f.backend.spec(&conv.container).unwrap();
     assert_eq!(
-        spec.binds
-            .iter()
-            .find(|b| b.target == "/deps/over")
-            .unwrap()
-            .mode,
+        spec.binds.iter().find(|b| b.target == "/deps/over").unwrap().mode,
         MountMode::Overlay
     );
 }

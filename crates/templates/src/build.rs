@@ -1,24 +1,17 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use nucleus_sandbox::{
-    BindMount, ContainerSpec, ExecSpec, MountMode, NetworkPolicy, SandboxBackend, current_user,
-};
+use nucleus_sandbox::{BindMount, ContainerSpec, ExecSpec, MountMode, NetworkPolicy, SandboxBackend, current_user};
 use sha2::{Digest, Sha256};
 
 use crate::{MountKind, TemplateManifest, WORKSPACE_MOUNT};
 
 /// Identity of a build: hash of the manifest, the lockfiles (in order) and the image id.
-pub fn identity(
-    manifest: &TemplateManifest,
-    repo_root: &Path,
-    image_id: &str,
-) -> crate::Result<String> {
+pub fn identity(manifest: &TemplateManifest, repo_root: &Path, image_id: &str) -> crate::Result<String> {
     let mut h = Sha256::new();
     h.update(toml::to_string(manifest)?.as_bytes());
     for f in &manifest.build.lockfiles {
-        let content =
-            std::fs::read(repo_root.join(f)).with_context(|| format!("lockfile {f} is missing"))?;
+        let content = std::fs::read(repo_root.join(f)).with_context(|| format!("lockfile {f} is missing"))?;
         h.update(f.as_bytes());
         h.update((content.len() as u64).to_le_bytes());
         h.update(&content);
@@ -130,8 +123,7 @@ impl TemplateBuilder<'_> {
         };
         spec.env.extend(manifest.env.clone());
         spec.env.insert("HOME".into(), "/tmp".into());
-        spec.env
-            .insert("NUCLEUS_TEMPLATE_SRC".into(), "/src".into());
+        spec.env.insert("NUCLEUS_TEMPLATE_SRC".into(), "/src".into());
         let path_prefix: Vec<String> = manifest.path_env.get("PATH").cloned().unwrap_or_default();
         let image_path = self
             .backend
@@ -160,10 +152,7 @@ impl TemplateBuilder<'_> {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let result = self
             .backend
-            .exec_collect(
-                &name,
-                &ExecSpec::new(["sh", "-ec", manifest.build.command.as_str()]),
-            )
+            .exec_collect(&name, &ExecSpec::new(["sh", "-ec", manifest.build.command.as_str()]))
             .await;
         self.backend.remove(&name).await.ok();
         let result = result?;
@@ -214,10 +203,7 @@ fn make_writable(path: &Path) {
     if let Ok(meta) = std::fs::symlink_metadata(path)
         && meta.is_dir()
     {
-        let _ = std::fs::set_permissions(
-            path,
-            std::fs::Permissions::from_mode(meta.permissions().mode() | 0o700),
-        );
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(meta.permissions().mode() | 0o700));
         if let Ok(rd) = std::fs::read_dir(path) {
             for e in rd.flatten() {
                 make_writable(&e.path());
@@ -228,8 +214,6 @@ fn make_writable(path: &Path) {
 
 fn tail(s: &str, n: usize) -> &str {
     let start = s.len().saturating_sub(n);
-    let start = (start..s.len())
-        .find(|&i| s.is_char_boundary(i))
-        .unwrap_or(s.len());
+    let start = (start..s.len()).find(|&i| s.is_char_boundary(i)).unwrap_or(s.len());
     &s[start..]
 }

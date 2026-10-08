@@ -60,16 +60,7 @@ pub async fn commit_file(dir: &Path, file: &str, content: &str, msg: &str) {
     git(dir, &["add", "-A"]).await.unwrap();
     git(
         dir,
-        &[
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "commit",
-            "-q",
-            "-m",
-            msg,
-        ],
+        &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg],
     )
     .await
     .unwrap();

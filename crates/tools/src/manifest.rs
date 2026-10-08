@@ -29,15 +29,12 @@ fn default_timeout() -> u64 {
 impl ToolManifest {
     pub fn load(dir: &Path) -> crate::Result<Self> {
         let path = dir.join(MANIFEST_FILE);
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let mut m: Self =
-            toml::from_str(&text).with_context(|| format!("invalid {}", path.display()))?;
+        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let mut m: Self = toml::from_str(&text).with_context(|| format!("invalid {}", path.display()))?;
         if m.input_schema.is_none() {
             let schema = dir.join("schema.json");
             m.input_schema = Some(if schema.is_file() {
-                serde_json::from_str(&std::fs::read_to_string(schema)?)
-                    .context("invalid schema.json")?
+                serde_json::from_str(&std::fs::read_to_string(schema)?).context("invalid schema.json")?
             } else {
                 serde_json::json!({ "type": "object" })
             });
@@ -64,9 +61,7 @@ impl ToolManifest {
             bail!("tool {} needs a description and a run command", self.name);
         }
         match &self.input_schema {
-            Some(Value::Object(o)) if o.get("type").and_then(Value::as_str) == Some("object") => {
-                Ok(())
-            }
+            Some(Value::Object(o)) if o.get("type").and_then(Value::as_str) == Some("object") => Ok(()),
             _ => bail!(
                 "input_schema of {} must be a JSON schema with type = \"object\"",
                 self.name

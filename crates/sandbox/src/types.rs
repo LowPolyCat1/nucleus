@@ -164,11 +164,7 @@ impl ExecHandle {
         stdin: Option<Pin<Box<dyn AsyncWrite + Send>>>,
         exit: BoxFuture<'static, crate::Result<Option<i64>>>,
     ) -> Self {
-        Self {
-            output,
-            stdin,
-            exit,
-        }
+        Self { output, stdin, exit }
     }
 
     /// Split into output stream, stdin and the exit future.

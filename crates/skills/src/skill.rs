@@ -18,10 +18,7 @@ pub struct Skill {
 /// Values may be quoted. Unknown keys are allowed (the Claude CLI understands more).
 pub fn parse_skill(text: &str) -> crate::Result<Skill> {
     let text = text.trim_start_matches('\u{feff}');
-    let Some(rest) = text
-        .strip_prefix("---\n")
-        .or_else(|| text.strip_prefix("---\r\n"))
-    else {
+    let Some(rest) = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n")) else {
         bail!("SKILL.md must start with '---' frontmatter");
     };
     let Some(end) = rest.find("\n---") else {
@@ -73,9 +70,7 @@ pub fn render_skill(skill: &Skill) -> String {
 }
 
 fn unquote(v: &str) -> String {
-    if v.len() >= 2
-        && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
-    {
+    if v.len() >= 2 && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\''))) {
         v[1..v.len() - 1].replace("\\\"", "\"")
     } else {
         v.to_string()

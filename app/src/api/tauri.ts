@@ -41,6 +41,7 @@ export function tauriBackend(): Backend {
     skills: () => call("skills"),
     cleanupOrphans: () => call("cleanup_orphans"),
     buildAgentImage: () => call("build_agent_image"),
+    recentLogs: (minLevel) => call("recent_logs", { minLevel }),
     subscribe(listener) {
       let unlisten: (() => void) | null = null;
       let cancelled = false;

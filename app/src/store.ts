@@ -16,7 +16,7 @@ import type {
 import { applyEvent, emptyChat, fromTranscript, startTurn, type ChatState } from "./lib/chat";
 import { errorMessage } from "./lib/format";
 
-export type View = "workspace" | "conversation" | "proposals" | "skills" | "settings";
+export type View = "workspace" | "conversation" | "proposals" | "skills" | "settings" | "logs";
 export type ConversationTab = "chat" | "changes";
 
 export interface Toast {

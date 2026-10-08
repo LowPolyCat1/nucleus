@@ -337,3 +337,34 @@ describe("settings", () => {
     expect(await r.findByText("Agent image built")).toBeInTheDocument();
   });
 });
+
+describe("logs", () => {
+  test("shows harness logs, filters by level and text", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await r.findByTestId("workspace-view");
+    r.backend.log("error", "orphan cleanup failed: boom");
+    r.backend.log("info", "conversation created conversation=abc");
+    await user.click(r.getByTestId("nav-logs"));
+    await waitFor(() => expect(r.getAllByTestId("log-row").length).toBeGreaterThanOrEqual(2));
+    expect(r.queryAllByTestId("log-row").every((row) => row.dataset.level !== "debug")).toBe(true);
+    await user.type(r.getByLabelText("Filter logs"), "orphan");
+    await waitFor(() => expect(r.getAllByTestId("log-row")).toHaveLength(1));
+    await user.clear(r.getByLabelText("Filter logs"));
+    await user.selectOptions(r.getByLabelText("Minimum level"), "error");
+    await waitFor(() => expect(r.getAllByTestId("log-row")).toHaveLength(1));
+    await user.selectOptions(r.getByLabelText("Minimum level"), "debug");
+    await waitFor(() => expect(r.getAllByTestId("log-row").some((row) => row.dataset.level === "debug")).toBe(true));
+  });
+
+  test("a failing log fetch shows an error", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await r.findByTestId("workspace-view");
+    r.backend.failNext("recentLogs", "no logs for you");
+    await user.click(r.getByTestId("nav-logs"));
+    expect(await r.findByText("no logs for you")).toBeInTheDocument();
+    await user.click(r.getByTestId("refresh-logs"));
+    await waitFor(() => expect(r.queryByText("no logs for you")).not.toBeInTheDocument());
+  });
+});

@@ -27,8 +27,7 @@ pub struct SkillStats {
 impl SkillStats {
     /// Laplace-smoothed share of good outcomes, 0.5 for an unused skill.
     pub fn reliability(&self) -> f64 {
-        (self.successes as f64 + 1.0)
-            / ((self.successes + self.failures + self.negative) as f64 + 2.0)
+        (self.successes as f64 + 1.0) / ((self.successes + self.failures + self.negative) as f64 + 2.0)
     }
 }
 
@@ -52,12 +51,7 @@ impl UsageStore {
     }
 
     pub fn stats(&self, name: &str) -> SkillStats {
-        self.data
-            .lock()
-            .unwrap()
-            .get(name)
-            .cloned()
-            .unwrap_or_default()
+        self.data.lock().unwrap().get(name).cloned().unwrap_or_default()
     }
 
     pub fn record_use(&self, name: &str) -> crate::Result<()> {

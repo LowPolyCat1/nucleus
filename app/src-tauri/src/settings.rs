@@ -40,10 +40,7 @@ pub fn merge(current: &Settings, incoming: Settings) -> anyhow::Result<Settings>
     }
     Ok(Settings {
         image: incoming.image.trim().to_string(),
-        model: incoming
-            .model
-            .map(|m| m.trim().to_string())
-            .filter(|m| !m.is_empty()),
+        model: incoming.model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()),
         provider_env: env,
         default_network: incoming.default_network,
     })
@@ -55,10 +52,7 @@ mod tests {
 
     fn settings(env: &[(&str, &str)]) -> Settings {
         Settings {
-            provider_env: env
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            provider_env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             ..Default::default()
         }
     }

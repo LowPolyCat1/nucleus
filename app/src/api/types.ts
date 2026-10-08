@@ -195,3 +195,13 @@ export interface AppState {
   workspaces: Workspace[];
   conversations: Conversation[];
 }
+
+export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
+
+export interface LogEntry {
+  /** Milliseconds since the unix epoch. */
+  time: number;
+  level: LogLevel;
+  target: string;
+  message: string;
+}

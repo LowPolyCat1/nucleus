@@ -30,10 +30,7 @@ pub const DEFAULT_CACHES: &[Cache] = &[
         name: "pip",
         volume: "nucleus-cache-pip",
         target: "/caches/pip",
-        env: &[
-            ("PIP_CACHE_DIR", "/caches/pip"),
-            ("UV_CACHE_DIR", "/caches/pip/uv"),
-        ],
+        env: &[("PIP_CACHE_DIR", "/caches/pip"), ("UV_CACHE_DIR", "/caches/pip/uv")],
     },
     Cache {
         name: "cargo",

@@ -46,12 +46,7 @@ pub trait Tool: Send + Sync {
     fn description(&self) -> &str;
     fn input_schema(&self) -> &Value;
     /// Run the tool inside `container`.
-    async fn call(
-        &self,
-        sandbox: &dyn SandboxBackend,
-        container: &str,
-        input: Value,
-    ) -> Result<ToolOutput>;
+    async fn call(&self, sandbox: &dyn SandboxBackend, container: &str, input: Value) -> Result<ToolOutput>;
 }
 
 /// All approved tools in the library at `root`. Invalid manifests are skipped with a warning.

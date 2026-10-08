@@ -34,10 +34,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"done","ses
     let provider = Arc::new(ClaudeCliProvider::new(Arc::new(LocalLauncher), config));
     let mut agent = Agent::new(provider);
     let mut events = Vec::new();
-    let summary = agent
-        .run_turn("list files", |e| events.push(e.clone()))
-        .await
-        .unwrap();
+    let summary = agent.run_turn("list files", |e| events.push(e.clone())).await.unwrap();
 
     assert_eq!(summary.session_id.as_deref(), Some("sess-1"));
     assert!(!summary.is_error);
@@ -64,10 +61,7 @@ async fn missing_result_is_an_error() {
         workdir: dir.path().to_str().unwrap().into(),
         ..Default::default()
     };
-    let mut agent = Agent::new(Arc::new(ClaudeCliProvider::new(
-        Arc::new(LocalLauncher),
-        config,
-    )));
+    let mut agent = Agent::new(Arc::new(ClaudeCliProvider::new(Arc::new(LocalLauncher), config)));
     let summary = agent.run_turn("x", |_| {}).await.unwrap();
     assert!(summary.is_error);
     assert_eq!(summary.exit_code, Some(1));

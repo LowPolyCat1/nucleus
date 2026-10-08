@@ -9,6 +9,8 @@ import type {
   DeleteOutcome,
   FileDiff,
   HarnessEvent,
+  LogEntry,
+  LogLevel,
   LibraryKind,
   MergeOutcome,
   NetworkPolicy,
@@ -66,6 +68,9 @@ export interface Backend {
 
   cleanupOrphans(): Promise<CleanupReport>;
   buildAgentImage(): Promise<string>;
+
+  /** Recent log entries at or above `minLevel`, oldest first. */
+  recentLogs(minLevel: LogLevel | null): Promise<LogEntry[]>;
 
   /** Subscribe to streamed harness events. Returns an unsubscribe function. */
   subscribe(listener: (event: HarnessEvent) => void): () => void;

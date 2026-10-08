@@ -112,3 +112,11 @@ test("backend errors surface as toasts without breaking the app", async ({ app }
   await app.getByTestId("start-conversation").click();
   await expect(app.getByTestId("conversation-view")).toBeVisible();
 });
+
+test("logs view records operations", async ({ app }) => {
+  await open(app);
+  await app.getByTestId("start-conversation").click();
+  await expect(app.getByTestId("conversation-view")).toBeVisible();
+  await app.getByTestId("nav-logs").click();
+  await expect(app.getByTestId("log-row").filter({ hasText: "conversation created" })).toBeVisible();
+});

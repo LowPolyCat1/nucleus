@@ -21,11 +21,7 @@ impl ProcessLauncher for SandboxLauncher {
             user: None,
             stdin: false,
         };
-        let (output, _stdin, exit) = self
-            .backend
-            .exec(&self.container, &exec)
-            .await?
-            .into_parts();
+        let (output, _stdin, exit) = self.backend.exec(&self.container, &exec).await?.into_parts();
         let output = output
             .map(|c| {
                 c.map(|c| match c {

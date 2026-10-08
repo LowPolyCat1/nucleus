@@ -5,8 +5,7 @@ use std::path::PathBuf;
 
 use nucleus_core::{TranscriptEntry, TurnSummary};
 use nucleus_harness::{
-    CleanupReport, Conversation, DeleteMode, DeleteOutcome, ProposalDetail, Settings,
-    TemplateStatus, Workspace,
+    CleanupReport, Conversation, DeleteMode, DeleteOutcome, ProposalDetail, Settings, TemplateStatus, Workspace,
 };
 use nucleus_promotion::{LibraryKind, Proposal};
 use nucleus_sandbox::NetworkPolicy;
@@ -48,11 +47,7 @@ pub async fn pick_directory(app: tauri::AppHandle) -> CmdResult<Option<String>> 
 }
 
 #[tauri::command]
-pub async fn add_workspace(
-    core: S<'_>,
-    path: String,
-    name: Option<String>,
-) -> CmdResult<Workspace> {
+pub async fn add_workspace(core: S<'_>, path: String, name: Option<String>) -> CmdResult<Workspace> {
     core.harness()
         .await?
         .add_workspace(&PathBuf::from(path), name)
@@ -62,11 +57,7 @@ pub async fn add_workspace(
 
 #[tauri::command]
 pub async fn remove_workspace(core: S<'_>, id: String) -> CmdResult<()> {
-    core.harness()
-        .await?
-        .remove_workspace(&id)
-        .await
-        .map_err(err)
+    core.harness().await?.remove_workspace(&id).await.map_err(err)
 }
 
 #[tauri::command]
@@ -90,11 +81,7 @@ pub async fn available_templates(core: S<'_>) -> CmdResult<Vec<TemplateManifest>
 
 #[tauri::command]
 pub async fn template_status(core: S<'_>, workspace_id: String) -> CmdResult<Vec<TemplateStatus>> {
-    core.harness()
-        .await?
-        .template_status(&workspace_id)
-        .await
-        .map_err(err)
+    core.harness().await?.template_status(&workspace_id).await.map_err(err)
 }
 
 #[tauri::command]
@@ -109,11 +96,7 @@ pub async fn build_templates(core: S<'_>, workspace_id: String) -> CmdResult<()>
 
 #[tauri::command]
 pub async fn branches(core: S<'_>, workspace_id: String) -> CmdResult<Vec<BranchInfo>> {
-    core.harness()
-        .await?
-        .branches(&workspace_id)
-        .await
-        .map_err(err)
+    core.harness().await?.branches(&workspace_id).await.map_err(err)
 }
 
 #[tauri::command]
@@ -126,17 +109,8 @@ pub async fn graph(core: S<'_>, workspace_id: String, limit: usize) -> CmdResult
 }
 
 #[tauri::command]
-pub async fn diff(
-    core: S<'_>,
-    workspace_id: String,
-    from: String,
-    to: String,
-) -> CmdResult<Vec<FileDiff>> {
-    core.harness()
-        .await?
-        .diff(&workspace_id, &from, &to)
-        .await
-        .map_err(err)
+pub async fn diff(core: S<'_>, workspace_id: String, from: String, to: String) -> CmdResult<Vec<FileDiff>> {
+    core.harness().await?.diff(&workspace_id, &from, &to).await.map_err(err)
 }
 
 #[tauri::command]
@@ -163,25 +137,13 @@ pub async fn rename_conversation(core: S<'_>, id: String, title: String) -> CmdR
 }
 
 #[tauri::command]
-pub async fn delete_conversation(
-    core: S<'_>,
-    id: String,
-    mode: DeleteMode,
-) -> CmdResult<DeleteOutcome> {
-    core.harness()
-        .await?
-        .delete_conversation(&id, mode)
-        .await
-        .map_err(err)
+pub async fn delete_conversation(core: S<'_>, id: String, mode: DeleteMode) -> CmdResult<DeleteOutcome> {
+    core.harness().await?.delete_conversation(&id, mode).await.map_err(err)
 }
 
 #[tauri::command]
 pub async fn send_message(core: S<'_>, id: String, prompt: String) -> CmdResult<TurnSummary> {
-    core.harness()
-        .await?
-        .send_message(&id, &prompt)
-        .await
-        .map_err(err)
+    core.harness().await?.send_message(&id, &prompt).await.map_err(err)
 }
 
 #[tauri::command]
@@ -196,29 +158,17 @@ pub async fn transcript(core: S<'_>, id: String) -> CmdResult<Vec<TranscriptEntr
 
 #[tauri::command]
 pub async fn conversation_diff(core: S<'_>, id: String) -> CmdResult<Vec<FileDiff>> {
-    core.harness()
-        .await?
-        .conversation_diff(&id)
-        .await
-        .map_err(err)
+    core.harness().await?.conversation_diff(&id).await.map_err(err)
 }
 
 #[tauri::command]
 pub async fn unmerged_commits(core: S<'_>, id: String) -> CmdResult<Vec<CommitInfo>> {
-    core.harness()
-        .await?
-        .unmerged_commits(&id)
-        .await
-        .map_err(err)
+    core.harness().await?.unmerged_commits(&id).await.map_err(err)
 }
 
 #[tauri::command]
 pub async fn merge_conversation(core: S<'_>, id: String, into: String) -> CmdResult<MergeOutcome> {
-    core.harness()
-        .await?
-        .merge_conversation(&id, &into)
-        .await
-        .map_err(err)
+    core.harness().await?.merge_conversation(&id, &into).await.map_err(err)
 }
 
 #[tauri::command]
@@ -243,20 +193,12 @@ pub async fn reject(core: S<'_>, kind: LibraryKind, id: String) -> CmdResult<()>
 
 #[tauri::command]
 pub async fn history(core: S<'_>, kind: LibraryKind, limit: usize) -> CmdResult<Vec<CommitInfo>> {
-    core.harness()
-        .await?
-        .history(kind, limit)
-        .await
-        .map_err(err)
+    core.harness().await?.history(kind, limit).await.map_err(err)
 }
 
 #[tauri::command]
 pub async fn revert(core: S<'_>, kind: LibraryKind, commit: String) -> CmdResult<String> {
-    core.harness()
-        .await?
-        .revert(kind, &commit)
-        .await
-        .map_err(err)
+    core.harness().await?.revert(kind, &commit).await.map_err(err)
 }
 
 #[tauri::command]
@@ -276,4 +218,12 @@ pub async fn build_agent_image(core: S<'_>) -> CmdResult<String> {
     nucleus_harness::build_agent_image(h.backend().engine(), &image)
         .await
         .map_err(err)
+}
+
+#[tauri::command]
+pub async fn recent_logs(
+    logs: State<'_, crate::logging::LogBuffer>,
+    min_level: Option<String>,
+) -> CmdResult<Vec<crate::logging::LogEntry>> {
+    Ok(logs.entries(min_level.as_deref()))
 }

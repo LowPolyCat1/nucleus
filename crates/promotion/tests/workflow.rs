@@ -33,10 +33,7 @@ async fn propose_approve_reject_revert() {
     assert_eq!(lib.diff(&p.id).await.unwrap()[0].path, "rust/SKILL.md");
 
     let commit = lib.approve(&p.id).await.unwrap();
-    assert_eq!(
-        std::fs::read_to_string(lib.path("rust/SKILL.md")).unwrap(),
-        "# Rust\n"
-    );
+    assert_eq!(std::fs::read_to_string(lib.path("rust/SKILL.md")).unwrap(), "# Rust\n");
     assert!(lib.proposals().await.unwrap().is_empty());
 
     let q = lib

@@ -55,20 +55,14 @@ pub fn resolve(
             MountKind::Readonly => MountMode::ReadOnly,
             MountKind::Overlay if overlay_supported => MountMode::Overlay,
             MountKind::Overlay => {
-                bail!(
-                    "template {} needs an overlay mount, which requires Podman",
-                    m.name
-                )
+                bail!("template {} needs an overlay mount, which requires Podman", m.name)
             }
             MountKind::Worktree { path } => {
                 let path = path.trim_end_matches('/').to_string();
                 for (other, other_path) in &worktree_paths {
                     let nested = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}/"));
                     if nested(&path, other_path) || nested(other_path, &path) {
-                        bail!(
-                            "templates {other} and {} both claim worktree path {path}",
-                            m.name
-                        );
+                        bail!("templates {other} and {} both claim worktree path {path}", m.name);
                     }
                 }
                 worktree_paths.push((m.name.clone(), path.clone()));
@@ -106,10 +100,7 @@ pub fn resolve(
                     m.name
                 );
             }
-            lists
-                .entry(k.clone())
-                .or_default()
-                .extend(v.iter().cloned());
+            lists.entry(k.clone()).or_default().extend(v.iter().cloned());
         }
     }
     for (k, mut entries) in lists {
@@ -145,10 +136,7 @@ mod tests {
         );
         let base = BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
         let r = resolve(&[a, b], &base, &BTreeMap::new(), false).unwrap();
-        assert_eq!(
-            r.env["PATH"],
-            "/deps/a/bin:/workspace/node_modules/.bin:/usr/bin"
-        );
+        assert_eq!(r.env["PATH"], "/deps/a/bin:/workspace/node_modules/.bin:/usr/bin");
         assert_eq!(r.env["A_HOME"], "/deps/a");
         assert_eq!(r.excludes, vec!["/node_modules"]);
         assert_eq!(r.binds[0].target, "/deps/a");
@@ -170,20 +158,9 @@ mod tests {
         assert!(resolve(&[w1, w2], &BTreeMap::new(), &BTreeMap::new(), false).is_err());
 
         let o = t("name='o'\nmount={mode='overlay'}\n[build]\ncommand='x'");
-        assert!(
-            resolve(
-                std::slice::from_ref(&o),
-                &BTreeMap::new(),
-                &BTreeMap::new(),
-                false
-            )
-            .is_err()
-        );
+        assert!(resolve(std::slice::from_ref(&o), &BTreeMap::new(), &BTreeMap::new(), false).is_err());
         assert_eq!(
-            resolve(&[o], &BTreeMap::new(), &BTreeMap::new(), true)
-                .unwrap()
-                .binds[0]
-                .mode,
+            resolve(&[o], &BTreeMap::new(), &BTreeMap::new(), true).unwrap().binds[0].mode,
             MountMode::Overlay
         );
     }

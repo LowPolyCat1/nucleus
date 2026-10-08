@@ -32,15 +32,9 @@ command = "mkdir -p bin && printf '#!/bin/sh\necho hello from $(cat /deps/hello/
         backend: &backend,
         root: store.path().into(),
     };
-    let first = builder
-        .build(&manifest, repo.path(), "node:22-alpine")
-        .await
-        .unwrap();
+    let first = builder.build(&manifest, repo.path(), "node:22-alpine").await.unwrap();
     assert!(first.built, "{}", first.log);
-    let again = builder
-        .build(&manifest, repo.path(), "node:22-alpine")
-        .await
-        .unwrap();
+    let again = builder.build(&manifest, repo.path(), "node:22-alpine").await.unwrap();
     assert!(!again.built);
     assert_eq!(first.identity, again.identity);
 
@@ -70,20 +64,12 @@ command = "mkdir -p bin && printf '#!/bin/sh\necho hello from $(cat /deps/hello/
         .await
         .unwrap();
     backend.remove(&name).await.unwrap();
-    assert_eq!(
-        out.stdout_str(),
-        "hello from hello-tool 1.0\n",
-        "{}",
-        out.stderr_str()
-    );
+    assert_eq!(out.stdout_str(), "hello from hello-tool 1.0\n", "{}", out.stderr_str());
     assert!(!ro.success());
 
     // Changing the lockfile makes the build stale.
     std::fs::write(repo.path().join("deps.lock"), "hello-tool 2.0\n").unwrap();
-    let second = builder
-        .build(&manifest, repo.path(), "node:22-alpine")
-        .await
-        .unwrap();
+    let second = builder.build(&manifest, repo.path(), "node:22-alpine").await.unwrap();
     assert!(second.built);
     assert_ne!(second.identity, first.identity);
     builder

@@ -108,11 +108,7 @@ async fn real_engine_end_to_end() {
         };
         assert_eq!(read("outbox-path.txt"), "/nucleus/outbox");
         assert_eq!(read("deps.txt"), "claude");
-        assert_eq!(
-            read("net.txt"),
-            "blocked",
-            "no direct internet from the sandbox"
-        );
+        assert_eq!(read("net.txt"), "blocked", "no direct internet from the sandbox");
         assert_eq!(read("whoami.txt"), current_uid(), "runs as the host user");
         // Committed on the agent branch, not in the main working copy.
         assert_eq!(h.unmerged_commits(&conv.id).await?.len(), 1);
@@ -142,9 +138,5 @@ async fn real_engine_end_to_end() {
 }
 
 fn current_uid() -> String {
-    nucleus_sandbox::current_user()
-        .split(':')
-        .next()
-        .unwrap()
-        .to_string()
+    nucleus_sandbox::current_user().split(':').next().unwrap().to_string()
 }

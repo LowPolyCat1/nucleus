@@ -45,10 +45,7 @@ mod local {
     #[async_trait]
     impl ProcessLauncher for LocalLauncher {
         async fn launch(&self, spec: LaunchSpec) -> crate::Result<LaunchedProcess> {
-            let (prog, args) = spec
-                .argv
-                .split_first()
-                .ok_or_else(|| anyhow::anyhow!("empty argv"))?;
+            let (prog, args) = spec.argv.split_first().ok_or_else(|| anyhow::anyhow!("empty argv"))?;
             let mut cmd = tokio::process::Command::new(prog);
             cmd.args(args)
                 .envs(&spec.env)
@@ -63,8 +60,7 @@ mod local {
             let (tx, rx) = futures::channel::mpsc::unbounded();
             for (mut pipe, is_err) in [
                 (
-                    Box::new(child.stdout.take().unwrap())
-                        as Box<dyn tokio::io::AsyncRead + Send + Unpin>,
+                    Box::new(child.stdout.take().unwrap()) as Box<dyn tokio::io::AsyncRead + Send + Unpin>,
                     false,
                 ),
                 (Box::new(child.stderr.take().unwrap()), true),

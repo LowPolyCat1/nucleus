@@ -107,12 +107,10 @@ impl Agent {
                 AgentEvent::SessionStarted { session_id, .. } if !session_id.is_empty() => {
                     self.session_id = Some(session_id);
                 }
-                AgentEvent::AssistantText { text } => {
-                    summary.entries.push(TranscriptEntry::Assistant { text })
+                AgentEvent::AssistantText { text } => summary.entries.push(TranscriptEntry::Assistant { text }),
+                AgentEvent::ToolUse { id, name, input } => {
+                    summary.entries.push(TranscriptEntry::ToolUse { id, name, input })
                 }
-                AgentEvent::ToolUse { id, name, input } => summary
-                    .entries
-                    .push(TranscriptEntry::ToolUse { id, name, input }),
                 AgentEvent::ToolResult {
                     tool_use_id,
                     content,
@@ -145,10 +143,7 @@ impl Agent {
         }
         if !completed {
             summary.is_error = true;
-            let message = format!(
-                "{} exited without completing the turn",
-                self.provider.name()
-            );
+            let message = format!("{} exited without completing the turn", self.provider.name());
             on_event(&AgentEvent::Error {
                 message: message.clone(),
             });

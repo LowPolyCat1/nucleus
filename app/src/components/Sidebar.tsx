@@ -79,6 +79,9 @@ export function Sidebar() {
         <NavItem active={state.view === "skills"} onClick={() => actions.setView("skills")} testid="nav-skills">
           Skills & tools
         </NavItem>
+        <NavItem active={state.view === "logs"} onClick={() => actions.setView("logs")} testid="nav-logs">
+          Logs
+        </NavItem>
         <NavItem active={state.view === "settings"} onClick={() => actions.setView("settings")} testid="nav-settings">
           Settings
         </NavItem>

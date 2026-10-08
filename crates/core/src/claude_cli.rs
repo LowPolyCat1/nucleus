@@ -20,9 +20,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{
-    AgentEvent, EventStream, LaunchSpec, LlmProvider, ProcessLauncher, ProcessOutput, TurnRequest,
-};
+use crate::{AgentEvent, EventStream, LaunchSpec, LlmProvider, ProcessLauncher, ProcessOutput, TurnRequest};
 
 /// Per-conversation (HOME is per conversation), so cancelling never signals another process.
 const PID_FILE: &str = "${HOME:-/tmp}/.nucleus-claude.pid";
@@ -95,11 +93,7 @@ impl ClaudeCliProvider {
             argv.extend(["--resume".into(), s.clone()]);
         }
         if let Some(m) = &c.mcp_config {
-            argv.extend([
-                "--mcp-config".into(),
-                m.clone(),
-                "--strict-mcp-config".into(),
-            ]);
+            argv.extend(["--mcp-config".into(), m.clone(), "--strict-mcp-config".into()]);
         }
         if let Some(s) = req.system_append.as_ref().filter(|s| !s.is_empty()) {
             argv.extend(["--append-system-prompt".into(), s.clone()]);
@@ -148,9 +142,7 @@ impl LlmProvider for ClaudeCliProvider {
                 .filter(|l| !l.trim().is_empty())
                 .map(|text| AgentEvent::Stderr { text })
                 .collect(),
-            Err(e) => vec![AgentEvent::Error {
-                message: e.to_string(),
-            }],
+            Err(e) => vec![AgentEvent::Error { message: e.to_string() }],
         });
         let tail = futures::stream::once(async move {
             match exit.await {
@@ -216,11 +208,7 @@ pub struct StreamParser {
 
 impl StreamParser {
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<AgentEvent> {
-        self.lines
-            .push(bytes)
-            .iter()
-            .flat_map(|l| parse_line(l))
-            .collect()
+        self.lines.push(bytes).iter().flat_map(|l| parse_line(l)).collect()
     }
 }
 
@@ -231,9 +219,7 @@ pub fn parse_line(line: &str) -> Vec<AgentEvent> {
         return vec![];
     }
     let Ok(v) = serde_json::from_str::<Value>(line) else {
-        return vec![AgentEvent::Stderr {
-            text: line.to_string(),
-        }];
+        return vec![AgentEvent::Stderr { text: line.to_string() }];
     };
     let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     match v.get("type").and_then(Value::as_str) {
@@ -244,11 +230,7 @@ pub fn parse_line(line: &str) -> Vec<AgentEvent> {
                 tools: v
                     .get("tools")
                     .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|t| t.as_str().map(str::to_string))
-                            .collect()
-                    })
+                    .map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
                     .unwrap_or_default(),
             }]
         }
@@ -331,7 +313,8 @@ mod tests {
 
     #[test]
     fn parses_real_event_shapes() {
-        let init = r#"{"type":"system","subtype":"init","cwd":"/w","session_id":"s1","tools":["Bash","Edit"],"model":"m"}"#;
+        let init =
+            r#"{"type":"system","subtype":"init","cwd":"/w","session_id":"s1","tools":["Bash","Edit"],"model":"m"}"#;
         assert_eq!(
             parse_line(init),
             vec![AgentEvent::SessionStarted {
@@ -341,10 +324,7 @@ mod tests {
             }]
         );
         let delta = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}},"session_id":"s1"}"#;
-        assert_eq!(
-            parse_line(delta),
-            vec![AgentEvent::TextDelta { text: "Hi".into() }]
-        );
+        assert_eq!(parse_line(delta), vec![AgentEvent::TextDelta { text: "Hi".into() }]);
         let asst = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Hi there"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]},"session_id":"s1"}"#;
         assert_eq!(parse_line(asst).len(), 2);
         let user = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a\nb"}],"is_error":false}]}}"#;
@@ -359,10 +339,7 @@ mod tests {
         let result = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":10,"num_turns":2,"result":"done","session_id":"s1","total_cost_usd":0.01}"#;
         assert!(matches!(
             &parse_line(result)[0],
-            AgentEvent::TurnCompleted {
-                num_turns: Some(2),
-                ..
-            }
+            AgentEvent::TurnCompleted { num_turns: Some(2), .. }
         ));
         assert!(parse_line(r#"{"type":"rate_limit_event"}"#).is_empty());
         assert!(parse_line(r#"{"type":"active_goal","value":null}"#).is_empty());
@@ -371,7 +348,10 @@ mod tests {
     #[test]
     fn parser_handles_split_lines() {
         let mut p = StreamParser::default();
-        assert!(p.feed(br#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text"#).is_empty());
+        assert!(
+            p.feed(br#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text"#)
+                .is_empty()
+        );
         assert_eq!(
             p.feed(b"_delta\",\"text\":\"x\"}}}\n"),
             vec![AgentEvent::TextDelta { text: "x".into() }]

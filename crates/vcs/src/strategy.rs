@@ -65,10 +65,7 @@ mod tests {
         assert_eq!(s.classify("refs/heads/main"), Some(BranchKind::Local));
         assert_eq!(s.classify("refs/heads/local/x"), Some(BranchKind::Local));
         assert_eq!(s.classify("refs/heads/agent/42"), Some(BranchKind::Agent));
-        assert_eq!(
-            s.classify("refs/remotes/origin/main"),
-            Some(BranchKind::Origin)
-        );
+        assert_eq!(s.classify("refs/remotes/origin/main"), Some(BranchKind::Origin));
         assert_eq!(s.classify("refs/remotes/origin/HEAD"), None);
         assert_eq!(s.classify("refs/tags/v1"), None);
         assert_eq!(s.conversation_of("agent/42").as_deref(), Some("42"));

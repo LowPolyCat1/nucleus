@@ -11,11 +11,7 @@ async fn delete_modes() {
     let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
 
     // Without changes, Check deletes immediately.
-    let empty = f
-        .harness
-        .create_conversation(&ws.id, "main", "empty")
-        .await
-        .unwrap();
+    let empty = f.harness.create_conversation(&ws.id, "main", "empty").await.unwrap();
     assert_eq!(
         f.harness
             .delete_conversation(&empty.id, DeleteMode::Check)
@@ -27,35 +23,19 @@ async fn delete_modes() {
     assert!(f.backend.spec(&empty.container).is_none());
 
     // With unmerged work, Check refuses and leaves everything in place.
-    let c = f
-        .harness
-        .create_conversation(&ws.id, "main", "work")
-        .await
-        .unwrap();
+    let c = f.harness.create_conversation(&ws.id, "main", "work").await.unwrap();
     f.harness.send_message(&c.id, "edit").await.unwrap();
-    match f
-        .harness
-        .delete_conversation(&c.id, DeleteMode::Check)
-        .await
-        .unwrap()
-    {
+    match f.harness.delete_conversation(&c.id, DeleteMode::Check).await.unwrap() {
         DeleteOutcome::NeedsConfirmation { unmerged } => assert_eq!(unmerged.len(), 1),
         other => panic!("{other:?}"),
     }
     assert!(c.worktree.exists());
 
     // Uncommitted leftovers in the worktree also count as unmerged work.
-    let d = f
-        .harness
-        .create_conversation(&ws.id, "main", "dirty")
-        .await
-        .unwrap();
+    let d = f.harness.create_conversation(&ws.id, "main", "dirty").await.unwrap();
     std::fs::write(d.worktree.join("stray.txt"), "x").unwrap();
     assert!(matches!(
-        f.harness
-            .delete_conversation(&d.id, DeleteMode::Check)
-            .await
-            .unwrap(),
+        f.harness.delete_conversation(&d.id, DeleteMode::Check).await.unwrap(),
         DeleteOutcome::NeedsConfirmation { .. }
     ));
 
@@ -91,42 +71,24 @@ async fn delete_modes() {
     // Merge into main (checked out in the main working copy), then delete.
     assert_eq!(
         f.harness
-            .delete_conversation(
-                &d.id,
-                DeleteMode::MergeInto {
-                    branch: "main".into()
-                }
-            )
+            .delete_conversation(&d.id, DeleteMode::MergeInto { branch: "main".into() })
             .await
             .unwrap(),
         DeleteOutcome::Deleted
     );
-    assert_eq!(
-        std::fs::read_to_string(f.repo.join("stray.txt")).unwrap(),
-        "x"
-    );
+    assert_eq!(std::fs::read_to_string(f.repo.join("stray.txt")).unwrap(), "x");
 
     // Discard drops the work.
-    let e = f
-        .harness
-        .create_conversation(&ws.id, "main", "discard")
-        .await
-        .unwrap();
+    let e = f.harness.create_conversation(&ws.id, "main", "discard").await.unwrap();
     f.harness.send_message(&e.id, "edit").await.unwrap();
     assert_eq!(
-        f.harness
-            .delete_conversation(&e.id, DeleteMode::Discard)
-            .await
-            .unwrap(),
+        f.harness.delete_conversation(&e.id, DeleteMode::Discard).await.unwrap(),
         DeleteOutcome::Deleted
     );
     assert_eq!(f.branches().await, vec!["local/work", "main"]);
     assert!(f.harness.snapshot().await.conversations.is_empty());
     assert!(
-        f.harness
-            .delete_conversation(&e.id, DeleteMode::Discard)
-            .await
-            .is_err(),
+        f.harness.delete_conversation(&e.id, DeleteMode::Discard).await.is_err(),
         "already gone"
     );
 }
@@ -135,28 +97,16 @@ async fn delete_modes() {
 async fn merge_conflicts_keep_the_conversation() {
     let f = fixture(Engine::Docker).await;
     let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
-    let c = f
-        .harness
-        .create_conversation(&ws.id, "main", "t")
-        .await
-        .unwrap();
+    let c = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
     f.harness.send_message(&c.id, "edit").await.unwrap();
     commit_file(&f.repo, "notes.txt", "main version\n", "conflicting").await;
     assert!(
-        f.harness
-            .merge_conversation(&c.id, &c.branch)
-            .await
-            .is_err(),
+        f.harness.merge_conversation(&c.id, &c.branch).await.is_err(),
         "agent branches are not merge targets"
     );
     let out = f
         .harness
-        .delete_conversation(
-            &c.id,
-            DeleteMode::MergeInto {
-                branch: "main".into(),
-            },
-        )
+        .delete_conversation(&c.id, DeleteMode::MergeInto { branch: "main".into() })
         .await
         .unwrap();
     assert_eq!(
@@ -176,10 +126,7 @@ async fn merge_conflicts_keep_the_conversation() {
     let vcs = GixVcs::open(&f.repo).unwrap();
     vcs.create_branch("local/review", "main~1").await.unwrap();
     assert!(matches!(
-        f.harness
-            .merge_conversation(&c.id, "local/review")
-            .await
-            .unwrap(),
+        f.harness.merge_conversation(&c.id, "local/review").await.unwrap(),
         MergeOutcome::FastForward { .. }
     ));
 }
@@ -188,16 +135,8 @@ async fn merge_conflicts_keep_the_conversation() {
 async fn cleanup_removes_orphans_only() {
     let f = fixture(Engine::Docker).await;
     let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
-    let keep = f
-        .harness
-        .create_conversation(&ws.id, "main", "keep")
-        .await
-        .unwrap();
-    let lost = f
-        .harness
-        .create_conversation(&ws.id, "main", "lost")
-        .await
-        .unwrap();
+    let keep = f.harness.create_conversation(&ws.id, "main", "keep").await.unwrap();
+    let lost = f.harness.create_conversation(&ws.id, "main", "lost").await.unwrap();
 
     // Simulate a crash that lost the conversation record but left everything else.
     let state_path = f.dir.path().join("data/state.json");
@@ -233,28 +172,19 @@ async fn cleanup_removes_orphans_only() {
         .map(|b| b.name)
         .collect::<Vec<_>>();
     assert!(
-        left.contains(&keep.branch)
-            && left.contains(&"agent-notes".to_string())
-            && left.contains(&"main".to_string())
+        left.contains(&keep.branch) && left.contains(&"agent-notes".to_string()) && left.contains(&"main".to_string())
     );
     assert!(keep.worktree.exists());
     assert!(f.backend.spec(&keep.container).is_some());
     // Idempotent.
-    assert_eq!(
-        harness.cleanup_orphans().await.unwrap(),
-        CleanupReport::default()
-    );
+    assert_eq!(harness.cleanup_orphans().await.unwrap(), CleanupReport::default());
 }
 
 #[tokio::test]
 async fn running_status_is_reset_on_open() {
     let f = fixture(Engine::Docker).await;
     let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
-    let c = f
-        .harness
-        .create_conversation(&ws.id, "main", "t")
-        .await
-        .unwrap();
+    let c = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
     let path = f.dir.path().join("data/state.json");
     let mut state = State::load(&path).unwrap();
     state.conversation_mut(&c.id).unwrap().status = ConversationStatus::Running;

@@ -55,12 +55,18 @@ impl Harness {
                 Err(e) => Err(e.context("unreadable outbox entry")),
             };
             match result {
-                Ok(proposal) => self.emit(HarnessEvent::ProposalCreated { proposal }),
-                Err(e) => self.emit(HarnessEvent::ProposalFailed {
-                    conversation_id: conv.id.clone(),
-                    kind,
-                    error: format!("{e:#}"),
-                }),
+                Ok(proposal) => {
+                    tracing::info!(conversation = %conv.id, kind = proposal.kind.as_str(), id = %proposal.id, "proposal created");
+                    self.emit(HarnessEvent::ProposalCreated { proposal })
+                }
+                Err(e) => {
+                    tracing::warn!(conversation = %conv.id, kind = kind.as_str(), "proposal rejected automatically: {e:#}");
+                    self.emit(HarnessEvent::ProposalFailed {
+                        conversation_id: conv.id.clone(),
+                        kind,
+                        error: format!("{e:#}"),
+                    })
+                }
             }
             if let Some(name) = file.file_name() {
                 std::fs::rename(&file, done.join(name)).ok();
@@ -71,11 +77,7 @@ impl Harness {
     async fn propose_from_outbox(&self, conv: &Conversation, item: OutboxItem) -> Result<Proposal> {
         let source = Some(conv.id.clone());
         match item {
-            OutboxItem::Skill { content, rationale } => {
-                self.skills
-                    .propose_upsert(&content, &rationale, source)
-                    .await
-            }
+            OutboxItem::Skill { content, rationale } => self.skills.propose_upsert(&content, &rationale, source).await,
             OutboxItem::Tool { name, rationale } => {
                 nucleus_skills::validate_name(&name.replace('_', "-"))?;
                 let (_, outbox, _) = self.conversation_dirs(&conv.id);
@@ -91,19 +93,12 @@ impl Harness {
                 .await?;
                 Ok(report.proposal)
             }
-            OutboxItem::Template {
-                manifest,
-                rationale,
-            } => {
+            OutboxItem::Template { manifest, rationale } => {
                 let m = TemplateManifest::parse(&manifest)?;
                 let exists = self.templates.root().join(&m.name).exists();
                 self.templates
                     .propose(NewProposal {
-                        title: format!(
-                            "{} template {}",
-                            if exists { "Update" } else { "Add" },
-                            m.name
-                        ),
+                        title: format!("{} template {}", if exists { "Update" } else { "Add" }, m.name),
                         rationale,
                         changes: vec![FileChange {
                             path: format!("{}/{}", m.name, nucleus_templates::MANIFEST_FILE),
@@ -120,11 +115,7 @@ impl Harness {
     /// Pending proposals across all libraries, newest first.
     pub async fn proposals(&self) -> Result<Vec<Proposal>> {
         let mut all = Vec::new();
-        for kind in [
-            LibraryKind::Skills,
-            LibraryKind::Tools,
-            LibraryKind::Templates,
-        ] {
+        for kind in [LibraryKind::Skills, LibraryKind::Tools, LibraryKind::Templates] {
             all.extend(self.library(kind).proposals().await?);
         }
         all.sort_by_key(|p| std::cmp::Reverse(p.created));

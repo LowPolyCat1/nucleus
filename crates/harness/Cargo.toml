@@ -23,5 +23,6 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+tracing-subscriber.workspace = true
 tempfile.workspace = true
 nucleus-sandbox = { workspace = true, features = ["fake"] }

@@ -9,6 +9,8 @@ import type {
   Engine,
   FileDiff,
   HarnessEvent,
+  LogEntry,
+  LogLevel,
   LibraryKind,
   MergeOutcome,
   NetworkPolicy,
@@ -139,6 +141,7 @@ export class MockBackend implements Backend {
   };
   private running = new Map<string, { cancelled: boolean }>();
   private builtTemplates = new Set<string>();
+  logs: LogEntry[] = [];
   /** Every call, for assertions: `[method, args]`. */
   calls: [string, unknown[]][] = [];
 
@@ -171,15 +174,27 @@ export class MockBackend implements Backend {
 
   // ---- internals --------------------------------------------------------------------
 
+  log(level: LogLevel, message: string, target = "nucleus_harness") {
+    this.logs.push({ time: Date.now(), level, target, message });
+    if (this.logs.length > 2000) this.logs.shift();
+  }
+
   private async guard<T>(method: string, args: unknown[], f: () => T | Promise<T>): Promise<T> {
     this.calls.push([method, args]);
+    if (method !== "recentLogs") this.log("debug", `command ${method}`, "nucleus_app");
     await Promise.resolve();
     const fail = this.failures.get(method);
     if (fail !== undefined) {
       this.failures.delete(method);
+      this.log("warn", `${method} failed: ${fail}`, "nucleus_app");
       throw fail;
     }
-    return f();
+    try {
+      return await f();
+    } catch (e) {
+      this.log("warn", `${method} failed: ${typeof e === "string" ? e : String(e)}`, "nucleus_app");
+      throw e;
+    }
   }
 
   private sleep() {
@@ -525,7 +540,9 @@ export class MockBackend implements Backend {
           this.builtTemplates.add(`${wid}/${name}`);
         }
       }
-      return clone(this.createConversationSync(wid, base, title));
+      const conv = this.createConversationSync(wid, base, title);
+      this.log("info", `conversation created conversation=${conv.id} branch=${conv.branch} base=${base}`);
+      return clone(conv);
     });
   }
 
@@ -561,6 +578,7 @@ export class MockBackend implements Backend {
         }
       }
       this.deleteSync(cid);
+      this.log("info", `conversation deleted conversation=${cid}`);
       return { result: "deleted" };
     });
   }
@@ -574,6 +592,7 @@ export class MockBackend implements Backend {
       }
       const run = { cancelled: false };
       this.running.set(cid, run);
+      this.log("info", `turn started conversation=${cid}`);
       this.setStatus(cid, "running");
       const entries: TranscriptEntry[] = [{ role: "user", text: prompt }];
       const send = async (event: AgentEvent) => {
@@ -610,6 +629,7 @@ export class MockBackend implements Backend {
         if (run.cancelled) this.emit({ type: "agent", conversation_id: cid, event: { type: "process_exited", code: 130 } });
       }
       this.running.delete(cid);
+      this.log(isError ? "warn" : "info", `turn finished conversation=${cid} is_error=${isError}`);
       if (!this.conversations.some((x) => x.id === cid)) throw "conversation was deleted";
       const repo = this.repo(c.workspace_id);
       if (!isError) {
@@ -749,6 +769,11 @@ export class MockBackend implements Backend {
       await this.sleep();
       return "Successfully tagged localhost/nucleus-agent:latest";
     });
+  }
+
+  recentLogs(minLevel: LogLevel | null) {
+    const rank = { trace: 0, debug: 1, info: 2, warn: 3, error: 4 } as const;
+    return this.guard("recentLogs", [minLevel], () => this.logs.filter((l) => rank[l.level] >= rank[minLevel ?? "trace"]).map((l) => ({ ...l })));
   }
 
   subscribe(listener: (e: HarnessEvent) => void) {

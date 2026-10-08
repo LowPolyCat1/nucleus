@@ -47,8 +47,7 @@ pub async fn promote_candidate(
     };
     let mut spec = ExecSpec::new(["sh", "-c", test.as_str()]);
     spec.workdir = Some(container_dir.to_string());
-    spec.env
-        .insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
+    spec.env.insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(manifest.timeout_secs.max(60) * 2),
         sandbox.exec_collect(container, &spec),
@@ -69,11 +68,7 @@ pub async fn promote_candidate(
     let exists = library.root().join(&manifest.name).exists();
     let proposal = library
         .propose(NewProposal {
-            title: format!(
-                "{} tool {}",
-                if exists { "Update" } else { "Add" },
-                manifest.name
-            ),
+            title: format!("{} tool {}", if exists { "Update" } else { "Add" }, manifest.name),
             rationale: format!(
                 "{}\n\nTest passed in the sandbox:\n{}",
                 rationale.trim(),
@@ -108,8 +103,8 @@ fn collect(root: &Path, dir: &Path, name: &str, out: &mut Vec<FileChange>) -> cr
         if meta.len() > MAX_FILE {
             bail!("tool file {rel} is larger than {MAX_FILE} bytes");
         }
-        let content = String::from_utf8(std::fs::read(e.path())?)
-            .with_context(|| format!("tool file {rel} is not text"))?;
+        let content =
+            String::from_utf8(std::fs::read(e.path())?).with_context(|| format!("tool file {rel} is not text"))?;
         out.push(FileChange {
             path: format!("{name}/{rel}"),
             content: Some(content),

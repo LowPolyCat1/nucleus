@@ -38,11 +38,7 @@ async fn init_reports_errors_and_retries() {
 #[tokio::test]
 async fn concurrent_init_opens_once() {
     let dir = tempfile::tempdir().unwrap();
-    let core = Arc::new(AppCore::new(
-        dir.path().into(),
-        connector(false),
-        Arc::new(|_| {}),
-    ));
+    let core = Arc::new(AppCore::new(dir.path().into(), connector(false), Arc::new(|_| {})));
     let (a, b) = tokio::join!(core.init(), core.init());
     assert!(a.ready && b.ready);
 }
@@ -53,27 +49,17 @@ async fn secrets_never_leave_the_backend() {
     let core = AppCore::new(dir.path().into(), connector(false), Arc::new(|_| {}));
     core.init().await;
     let mut s = Settings::default();
-    s.provider_env
-        .insert("ANTHROPIC_API_KEY".into(), "sk-real".into());
+    s.provider_env.insert("ANTHROPIC_API_KEY".into(), "sk-real".into());
     core.update_settings(s).await.unwrap();
     let state = core.state().await.unwrap();
-    assert_eq!(
-        state.settings.provider_env["ANTHROPIC_API_KEY"],
-        SECRET_MASK
-    );
+    assert_eq!(state.settings.provider_env["ANTHROPIC_API_KEY"], SECRET_MASK);
     // Round-tripping the masked settings keeps the real value.
     core.update_settings(state.settings.clone()).await.unwrap();
     let h = core.harness().await.unwrap();
-    assert_eq!(
-        h.settings().await.provider_env["ANTHROPIC_API_KEY"],
-        "sk-real"
-    );
+    assert_eq!(h.settings().await.provider_env["ANTHROPIC_API_KEY"], "sk-real");
     // JSON shape matches what the frontend expects.
     let json = serde_json::to_value(&state).unwrap();
-    assert_eq!(
-        json["settings"]["default_network"],
-        serde_json::json!({"mode": "none"})
-    );
+    assert_eq!(json["settings"]["default_network"], serde_json::json!({"mode": "none"}));
     assert!(
         core.update_settings(Settings {
             image: "".into(),
