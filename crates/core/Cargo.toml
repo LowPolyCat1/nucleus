@@ -4,4 +4,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Runs processes directly on the host. Only for tests and development; the harness always
+# launches agents inside the sandbox.
+local-launcher = []
+
 [dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+nucleus-core = { path = ".", features = ["local-launcher"] }
