@@ -30,8 +30,14 @@ impl Harness {
     pub(crate) async fn process_outbox(&self, conv: &Conversation) {
         let (_, outbox, _) = self.conversation_dirs(&conv.id);
         let dir = outbox.join("proposals");
-        let Ok(rd) = std::fs::read_dir(&dir) else { return };
-        let mut files: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let mut files: Vec<_> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "json"))
+            .collect();
         files.sort();
         let done = outbox.join("processed");
         std::fs::create_dir_all(&done).ok();
@@ -50,7 +56,11 @@ impl Harness {
             };
             match result {
                 Ok(proposal) => self.emit(HarnessEvent::ProposalCreated { proposal }),
-                Err(e) => self.emit(HarnessEvent::ProposalFailed { conversation_id: conv.id.clone(), kind, error: format!("{e:#}") }),
+                Err(e) => self.emit(HarnessEvent::ProposalFailed {
+                    conversation_id: conv.id.clone(),
+                    kind,
+                    error: format!("{e:#}"),
+                }),
             }
             if let Some(name) = file.file_name() {
                 std::fs::rename(&file, done.join(name)).ok();
@@ -61,7 +71,11 @@ impl Harness {
     async fn propose_from_outbox(&self, conv: &Conversation, item: OutboxItem) -> Result<Proposal> {
         let source = Some(conv.id.clone());
         match item {
-            OutboxItem::Skill { content, rationale } => self.skills.propose_upsert(&content, &rationale, source).await,
+            OutboxItem::Skill { content, rationale } => {
+                self.skills
+                    .propose_upsert(&content, &rationale, source)
+                    .await
+            }
             OutboxItem::Tool { name, rationale } => {
                 nucleus_skills::validate_name(&name.replace('_', "-"))?;
                 let (_, outbox, _) = self.conversation_dirs(&conv.id);
@@ -77,14 +91,25 @@ impl Harness {
                 .await?;
                 Ok(report.proposal)
             }
-            OutboxItem::Template { manifest, rationale } => {
+            OutboxItem::Template {
+                manifest,
+                rationale,
+            } => {
                 let m = TemplateManifest::parse(&manifest)?;
                 let exists = self.templates.root().join(&m.name).exists();
                 self.templates
                     .propose(NewProposal {
-                        title: format!("{} template {}", if exists { "Update" } else { "Add" }, m.name),
+                        title: format!(
+                            "{} template {}",
+                            if exists { "Update" } else { "Add" },
+                            m.name
+                        ),
                         rationale,
-                        changes: vec![FileChange { path: format!("{}/{}", m.name, nucleus_templates::MANIFEST_FILE), content: Some(manifest), executable: false }],
+                        changes: vec![FileChange {
+                            path: format!("{}/{}", m.name, nucleus_templates::MANIFEST_FILE),
+                            content: Some(manifest),
+                            executable: false,
+                        }],
                         source,
                     })
                     .await
@@ -95,16 +120,23 @@ impl Harness {
     /// Pending proposals across all libraries, newest first.
     pub async fn proposals(&self) -> Result<Vec<Proposal>> {
         let mut all = Vec::new();
-        for kind in [LibraryKind::Skills, LibraryKind::Tools, LibraryKind::Templates] {
+        for kind in [
+            LibraryKind::Skills,
+            LibraryKind::Tools,
+            LibraryKind::Templates,
+        ] {
             all.extend(self.library(kind).proposals().await?);
         }
-        all.sort_by(|a, b| b.created.cmp(&a.created));
+        all.sort_by_key(|p| std::cmp::Reverse(p.created));
         Ok(all)
     }
 
     pub async fn proposal(&self, kind: LibraryKind, id: &str) -> Result<ProposalDetail> {
         let lib = self.library(kind);
-        Ok(ProposalDetail { proposal: lib.get(id).await?, diff: lib.diff(id).await? })
+        Ok(ProposalDetail {
+            proposal: lib.get(id).await?,
+            diff: lib.diff(id).await?,
+        })
     }
 
     /// Approve a proposal. Running containers see approved skills and tools immediately
@@ -130,7 +162,14 @@ impl Harness {
     }
 
     async fn refresh_support(&self) {
-        let ids: Vec<String> = self.state.lock().await.conversations.iter().map(|c| c.id.clone()).collect();
+        let ids: Vec<String> = self
+            .state
+            .lock()
+            .await
+            .conversations
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
         for id in ids {
             self.write_support(&id).ok();
         }

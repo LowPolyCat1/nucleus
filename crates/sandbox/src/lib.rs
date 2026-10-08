@@ -69,6 +69,10 @@ pub trait SandboxBackend: Send + Sync {
             }
         }
         let exit_code = handle.wait().await?;
-        Ok(ExecResult { exit_code, stdout, stderr })
+        Ok(ExecResult {
+            exit_code,
+            stdout,
+            stderr,
+        })
     }
 }

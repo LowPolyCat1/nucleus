@@ -20,7 +20,9 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{AgentEvent, EventStream, LaunchSpec, LlmProvider, ProcessLauncher, ProcessOutput, TurnRequest};
+use crate::{
+    AgentEvent, EventStream, LaunchSpec, LlmProvider, ProcessLauncher, ProcessOutput, TurnRequest,
+};
 
 /// Per-conversation (HOME is per conversation), so cancelling never signals another process.
 const PID_FILE: &str = "${HOME:-/tmp}/.nucleus-claude.pid";
@@ -58,7 +60,12 @@ impl Default for ClaudeCliConfig {
 }
 
 /// Hosts the CLI needs to reach. Always allowed through the sandbox egress proxy.
-pub const REQUIRED_HOSTS: &[&str] = &["api.anthropic.com", "statsig.anthropic.com", "claude.ai", "platform.claude.com"];
+pub const REQUIRED_HOSTS: &[&str] = &[
+    "api.anthropic.com",
+    "statsig.anthropic.com",
+    "claude.ai",
+    "platform.claude.com",
+];
 
 pub struct ClaudeCliProvider {
     launcher: Arc<dyn ProcessLauncher>,
@@ -88,7 +95,11 @@ impl ClaudeCliProvider {
             argv.extend(["--resume".into(), s.clone()]);
         }
         if let Some(m) = &c.mcp_config {
-            argv.extend(["--mcp-config".into(), m.clone(), "--strict-mcp-config".into()]);
+            argv.extend([
+                "--mcp-config".into(),
+                m.clone(),
+                "--strict-mcp-config".into(),
+            ]);
         }
         if let Some(s) = req.system_append.as_ref().filter(|s| !s.is_empty()) {
             argv.extend(["--append-system-prompt".into(), s.clone()]);
@@ -118,7 +129,11 @@ impl LlmProvider for ClaudeCliProvider {
         argv.extend(self.argv(&request));
         let process = self
             .launcher
-            .launch(LaunchSpec { argv, env: self.config.env.clone(), workdir: Some(self.config.workdir.clone()) })
+            .launch(LaunchSpec {
+                argv,
+                env: self.config.env.clone(),
+                workdir: Some(self.config.workdir.clone()),
+            })
             .await?;
 
         let mut parser = StreamParser::default();
@@ -133,12 +148,16 @@ impl LlmProvider for ClaudeCliProvider {
                 .filter(|l| !l.trim().is_empty())
                 .map(|text| AgentEvent::Stderr { text })
                 .collect(),
-            Err(e) => vec![AgentEvent::Error { message: e.to_string() }],
+            Err(e) => vec![AgentEvent::Error {
+                message: e.to_string(),
+            }],
         });
         let tail = futures::stream::once(async move {
             match exit.await {
                 Ok(code) => AgentEvent::ProcessExited { code },
-                Err(e) => AgentEvent::Error { message: format!("waiting for claude: {e}") },
+                Err(e) => AgentEvent::Error {
+                    message: format!("waiting for claude: {e}"),
+                },
             }
         });
         Ok(events.chain(tail).boxed())
@@ -148,7 +167,11 @@ impl LlmProvider for ClaudeCliProvider {
         let p = self
             .launcher
             .launch(LaunchSpec {
-                argv: vec!["sh".into(), "-c".into(), format!("[ -f \"{PID_FILE}\" ] && kill -INT $(cat \"{PID_FILE}\")")],
+                argv: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    format!("[ -f \"{PID_FILE}\" ] && kill -INT $(cat \"{PID_FILE}\")"),
+                ],
                 env: BTreeMap::new(),
                 workdir: None,
             })
@@ -193,7 +216,11 @@ pub struct StreamParser {
 
 impl StreamParser {
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<AgentEvent> {
-        self.lines.push(bytes).iter().flat_map(|l| parse_line(l)).collect()
+        self.lines
+            .push(bytes)
+            .iter()
+            .flat_map(|l| parse_line(l))
+            .collect()
     }
 }
 
@@ -204,7 +231,9 @@ pub fn parse_line(line: &str) -> Vec<AgentEvent> {
         return vec![];
     }
     let Ok(v) = serde_json::from_str::<Value>(line) else {
-        return vec![AgentEvent::Stderr { text: line.to_string() }];
+        return vec![AgentEvent::Stderr {
+            text: line.to_string(),
+        }];
     };
     let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     match v.get("type").and_then(Value::as_str) {
@@ -215,7 +244,11 @@ pub fn parse_line(line: &str) -> Vec<AgentEvent> {
                 tools: v
                     .get("tools")
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|t| t.as_str().map(str::to_string))
+                            .collect()
+                    })
                     .unwrap_or_default(),
             }]
         }
@@ -226,9 +259,13 @@ pub fn parse_line(line: &str) -> Vec<AgentEvent> {
             }
             let delta = &ev["delta"];
             match delta.get("type").and_then(Value::as_str) {
-                Some("text_delta") => vec![AgentEvent::TextDelta { text: s(delta, "text").unwrap_or_default() }],
+                Some("text_delta") => vec![AgentEvent::TextDelta {
+                    text: s(delta, "text").unwrap_or_default(),
+                }],
                 Some("thinking_delta") => {
-                    vec![AgentEvent::ThinkingDelta { text: s(delta, "thinking").unwrap_or_default() }]
+                    vec![AgentEvent::ThinkingDelta {
+                        text: s(delta, "thinking").unwrap_or_default(),
+                    }]
                 }
                 _ => vec![],
             }
@@ -236,7 +273,9 @@ pub fn parse_line(line: &str) -> Vec<AgentEvent> {
         Some("assistant") => content(&v)
             .iter()
             .filter_map(|block| match block.get("type").and_then(Value::as_str) {
-                Some("text") => Some(AgentEvent::AssistantText { text: s(block, "text").unwrap_or_default() }),
+                Some("text") => Some(AgentEvent::AssistantText {
+                    text: s(block, "text").unwrap_or_default(),
+                }),
                 Some("tool_use") => Some(AgentEvent::ToolUse {
                     id: s(block, "id").unwrap_or_default(),
                     name: s(block, "name").unwrap_or_default(),
@@ -267,7 +306,10 @@ pub fn parse_line(line: &str) -> Vec<AgentEvent> {
 }
 
 fn content(v: &Value) -> Vec<Value> {
-    v.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default()
+    v.pointer("/message/content")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn tool_result_text(content: Option<&Value>) -> String {
@@ -292,19 +334,36 @@ mod tests {
         let init = r#"{"type":"system","subtype":"init","cwd":"/w","session_id":"s1","tools":["Bash","Edit"],"model":"m"}"#;
         assert_eq!(
             parse_line(init),
-            vec![AgentEvent::SessionStarted { session_id: "s1".into(), model: Some("m".into()), tools: vec!["Bash".into(), "Edit".into()] }]
+            vec![AgentEvent::SessionStarted {
+                session_id: "s1".into(),
+                model: Some("m".into()),
+                tools: vec!["Bash".into(), "Edit".into()]
+            }]
         );
         let delta = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}},"session_id":"s1"}"#;
-        assert_eq!(parse_line(delta), vec![AgentEvent::TextDelta { text: "Hi".into() }]);
+        assert_eq!(
+            parse_line(delta),
+            vec![AgentEvent::TextDelta { text: "Hi".into() }]
+        );
         let asst = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Hi there"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]},"session_id":"s1"}"#;
         assert_eq!(parse_line(asst).len(), 2);
         let user = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a\nb"}],"is_error":false}]}}"#;
         assert_eq!(
             parse_line(user),
-            vec![AgentEvent::ToolResult { tool_use_id: "t1".into(), content: "a\nb".into(), is_error: false }]
+            vec![AgentEvent::ToolResult {
+                tool_use_id: "t1".into(),
+                content: "a\nb".into(),
+                is_error: false
+            }]
         );
         let result = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":10,"num_turns":2,"result":"done","session_id":"s1","total_cost_usd":0.01}"#;
-        assert!(matches!(&parse_line(result)[0], AgentEvent::TurnCompleted { num_turns: Some(2), .. }));
+        assert!(matches!(
+            &parse_line(result)[0],
+            AgentEvent::TurnCompleted {
+                num_turns: Some(2),
+                ..
+            }
+        ));
         assert!(parse_line(r#"{"type":"rate_limit_event"}"#).is_empty());
         assert!(parse_line(r#"{"type":"active_goal","value":null}"#).is_empty());
     }
@@ -313,6 +372,9 @@ mod tests {
     fn parser_handles_split_lines() {
         let mut p = StreamParser::default();
         assert!(p.feed(br#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text"#).is_empty());
-        assert_eq!(p.feed(b"_delta\",\"text\":\"x\"}}}\n"), vec![AgentEvent::TextDelta { text: "x".into() }]);
+        assert_eq!(
+            p.feed(b"_delta\",\"text\":\"x\"}}}\n"),
+            vec![AgentEvent::TextDelta { text: "x".into() }]
+        );
     }
 }

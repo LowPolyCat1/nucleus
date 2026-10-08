@@ -73,8 +73,14 @@ pub struct WorktreeInfo {
 pub enum MergeOutcome {
     /// `into` already contained `from`.
     UpToDate,
-    FastForward { commit: String },
-    Merged { commit: String },
+    FastForward {
+        commit: String,
+    },
+    Merged {
+        commit: String,
+    },
     /// Nothing was changed; these paths conflict.
-    Conflicts { paths: Vec<String> },
+    Conflicts {
+        paths: Vec<String>,
+    },
 }

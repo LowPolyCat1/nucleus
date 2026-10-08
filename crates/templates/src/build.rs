@@ -1,17 +1,24 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use nucleus_sandbox::{BindMount, ContainerSpec, ExecSpec, MountMode, NetworkPolicy, SandboxBackend, current_user};
+use nucleus_sandbox::{
+    BindMount, ContainerSpec, ExecSpec, MountMode, NetworkPolicy, SandboxBackend, current_user,
+};
 use sha2::{Digest, Sha256};
 
 use crate::{MountKind, TemplateManifest, WORKSPACE_MOUNT};
 
 /// Identity of a build: hash of the manifest, the lockfiles (in order) and the image id.
-pub fn identity(manifest: &TemplateManifest, repo_root: &Path, image_id: &str) -> crate::Result<String> {
+pub fn identity(
+    manifest: &TemplateManifest,
+    repo_root: &Path,
+    image_id: &str,
+) -> crate::Result<String> {
     let mut h = Sha256::new();
     h.update(toml::to_string(manifest)?.as_bytes());
     for f in &manifest.build.lockfiles {
-        let content = std::fs::read(repo_root.join(f)).with_context(|| format!("lockfile {f} is missing"))?;
+        let content =
+            std::fs::read(repo_root.join(f)).with_context(|| format!("lockfile {f} is missing"))?;
         h.update(f.as_bytes());
         h.update((content.len() as u64).to_le_bytes());
         h.update(&content);
@@ -58,12 +65,21 @@ impl TemplateBuilder<'_> {
         repo_root: &Path,
         default_image: &str,
     ) -> crate::Result<BuildOutcome> {
-        let image = manifest.build.image.clone().unwrap_or_else(|| default_image.to_string());
+        let image = manifest
+            .build
+            .image
+            .clone()
+            .unwrap_or_else(|| default_image.to_string());
         let image_id = self.backend.ensure_image(&image).await?;
         let id = identity(manifest, repo_root, &image_id)?;
         let out = self.build_dir(&manifest.name, &id);
         if self.is_built(&manifest.name, &id) {
-            return Ok(BuildOutcome { identity: id, path: out, built: false, log: String::new() });
+            return Ok(BuildOutcome {
+                identity: id,
+                path: out,
+                built: false,
+                log: String::new(),
+            });
         }
         if out.exists() {
             tokio::fs::remove_dir_all(&out).await?;
@@ -81,11 +97,20 @@ impl TemplateBuilder<'_> {
         }
         let scratch_workspace = tempfile::tempdir()?;
         let mount_path = manifest.mount_path();
-        let name = format!("nucleus-build-{}-{}", manifest.name, &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let name = format!(
+            "nucleus-build-{}-{}",
+            manifest.name,
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
         let mut spec = ContainerSpec::new(&name, &image);
         spec.user = Some(current_user());
-        spec.labels.insert("nucleus.template-build".into(), manifest.name.clone());
-        spec.binds.push(BindMount { source: src.path().into(), target: "/src".into(), mode: MountMode::ReadOnly });
+        spec.labels
+            .insert("nucleus.template-build".into(), manifest.name.clone());
+        spec.binds.push(BindMount {
+            source: src.path().into(),
+            target: "/src".into(),
+            mode: MountMode::ReadOnly,
+        });
         if matches!(manifest.mount, MountKind::Worktree { .. }) {
             spec.binds.push(BindMount {
                 source: scratch_workspace.path().into(),
@@ -93,7 +118,11 @@ impl TemplateBuilder<'_> {
                 mode: MountMode::ReadWrite,
             });
         }
-        spec.binds.push(BindMount { source: out.clone(), target: mount_path.clone(), mode: MountMode::ReadWrite });
+        spec.binds.push(BindMount {
+            source: out.clone(),
+            target: mount_path.clone(),
+            mode: MountMode::ReadWrite,
+        });
         spec.network = if manifest.build.network.iter().any(|h| h == "*") {
             NetworkPolicy::Full
         } else {
@@ -101,7 +130,8 @@ impl TemplateBuilder<'_> {
         };
         spec.env.extend(manifest.env.clone());
         spec.env.insert("HOME".into(), "/tmp".into());
-        spec.env.insert("NUCLEUS_TEMPLATE_SRC".into(), "/src".into());
+        spec.env
+            .insert("NUCLEUS_TEMPLATE_SRC".into(), "/src".into());
         let path_prefix: Vec<String> = manifest.path_env.get("PATH").cloned().unwrap_or_default();
         let image_path = self
             .backend
@@ -115,7 +145,14 @@ impl TemplateBuilder<'_> {
                 spec.env.insert(k.clone(), v.join(":"));
             }
         }
-        spec.env.insert("PATH".into(), path_prefix.into_iter().chain([image_path]).collect::<Vec<_>>().join(":"));
+        spec.env.insert(
+            "PATH".into(),
+            path_prefix
+                .into_iter()
+                .chain([image_path])
+                .collect::<Vec<_>>()
+                .join(":"),
+        );
         spec.workdir = Some(manifest.build.workdir.clone().unwrap_or(mount_path));
 
         self.backend.create(&spec).await?;
@@ -123,22 +160,37 @@ impl TemplateBuilder<'_> {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let result = self
             .backend
-            .exec_collect(&name, &ExecSpec::new(["sh", "-ec", manifest.build.command.as_str()]))
+            .exec_collect(
+                &name,
+                &ExecSpec::new(["sh", "-ec", manifest.build.command.as_str()]),
+            )
             .await;
         self.backend.remove(&name).await.ok();
         let result = result?;
         let log = format!("{}{}", result.stdout_str(), result.stderr_str());
         if !result.success() {
-            bail!("building template {} failed (exit {:?}):\n{}", manifest.name, result.exit_code, tail(&log, 4000));
+            bail!(
+                "building template {} failed (exit {:?}):\n{}",
+                manifest.name,
+                result.exit_code,
+                tail(&log, 4000)
+            );
         }
         tokio::fs::write(self.marker(&manifest.name, &id), &image_id).await?;
-        Ok(BuildOutcome { identity: id, path: out, built: true, log })
+        Ok(BuildOutcome {
+            identity: id,
+            path: out,
+            built: true,
+            log,
+        })
     }
 
     /// Remove builds of `name` other than `keep`.
     pub async fn prune(&self, name: &str, keep: &[String]) -> crate::Result<()> {
         let dir = self.root.join(name);
-        let Ok(mut entries) = tokio::fs::read_dir(&dir).await else { return Ok(()) };
+        let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+            return Ok(());
+        };
         while let Some(e) = entries.next_entry().await? {
             let file = e.file_name().to_string_lossy().to_string();
             let id = file.trim_end_matches(".done");
@@ -159,13 +211,16 @@ impl TemplateBuilder<'_> {
 
 fn make_writable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::symlink_metadata(path) {
-        if meta.is_dir() {
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(meta.permissions().mode() | 0o700));
-            if let Ok(rd) = std::fs::read_dir(path) {
-                for e in rd.flatten() {
-                    make_writable(&e.path());
-                }
+    if let Ok(meta) = std::fs::symlink_metadata(path)
+        && meta.is_dir()
+    {
+        let _ = std::fs::set_permissions(
+            path,
+            std::fs::Permissions::from_mode(meta.permissions().mode() | 0o700),
+        );
+        if let Ok(rd) = std::fs::read_dir(path) {
+            for e in rd.flatten() {
+                make_writable(&e.path());
             }
         }
     }
@@ -173,6 +228,8 @@ fn make_writable(path: &Path) {
 
 fn tail(s: &str, n: usize) -> &str {
     let start = s.len().saturating_sub(n);
-    let start = (start..s.len()).find(|&i| s.is_char_boundary(i)).unwrap_or(s.len());
+    let start = (start..s.len())
+        .find(|&i| s.is_char_boundary(i))
+        .unwrap_or(s.len());
     &s[start..]
 }

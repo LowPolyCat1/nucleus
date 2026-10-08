@@ -18,15 +18,22 @@ pub struct Skill {
 /// Values may be quoted. Unknown keys are allowed (the Claude CLI understands more).
 pub fn parse_skill(text: &str) -> crate::Result<Skill> {
     let text = text.trim_start_matches('\u{feff}');
-    let Some(rest) = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n")) else {
+    let Some(rest) = text
+        .strip_prefix("---\n")
+        .or_else(|| text.strip_prefix("---\r\n"))
+    else {
         bail!("SKILL.md must start with '---' frontmatter");
     };
-    let Some(end) = rest.find("\n---") else { bail!("unterminated frontmatter") };
+    let Some(end) = rest.find("\n---") else {
+        bail!("unterminated frontmatter")
+    };
     let (front, body) = (&rest[..end], &rest[end + 4..]);
     let body = body.trim_start_matches(['\r', '\n']).to_string();
     let (mut name, mut description, mut when) = (None, None, None);
     for line in front.lines() {
-        let Some((k, v)) = line.split_once(':') else { continue };
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
         let v = unquote(v.trim());
         match k.trim() {
             "name" => name = Some(v),
@@ -41,11 +48,22 @@ pub fn parse_skill(text: &str) -> crate::Result<Skill> {
     if description.trim().is_empty() {
         bail!("description must not be empty");
     }
-    Ok(Skill { meta: SkillMeta { name, description, when_to_use: when.filter(|w| !w.is_empty()) }, body })
+    Ok(Skill {
+        meta: SkillMeta {
+            name,
+            description,
+            when_to_use: when.filter(|w| !w.is_empty()),
+        },
+        body,
+    })
 }
 
 pub fn render_skill(skill: &Skill) -> String {
-    let mut s = format!("---\nname: {}\ndescription: {}\n", skill.meta.name, quote(&skill.meta.description));
+    let mut s = format!(
+        "---\nname: {}\ndescription: {}\n",
+        skill.meta.name,
+        quote(&skill.meta.description)
+    );
     if let Some(w) = &skill.meta.when_to_use {
         s.push_str(&format!("when_to_use: {}\n", quote(w)));
     }
@@ -55,7 +73,9 @@ pub fn render_skill(skill: &Skill) -> String {
 }
 
 fn unquote(v: &str) -> String {
-    if v.len() >= 2 && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\''))) {
+    if v.len() >= 2
+        && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+    {
         v[1..v.len() - 1].replace("\\\"", "\"")
     } else {
         v.to_string()

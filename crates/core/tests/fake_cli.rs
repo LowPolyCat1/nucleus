@@ -34,7 +34,10 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"done","ses
     let provider = Arc::new(ClaudeCliProvider::new(Arc::new(LocalLauncher), config));
     let mut agent = Agent::new(provider);
     let mut events = Vec::new();
-    let summary = agent.run_turn("list files", |e| events.push(e.clone())).await.unwrap();
+    let summary = agent
+        .run_turn("list files", |e| events.push(e.clone()))
+        .await
+        .unwrap();
 
     assert_eq!(summary.session_id.as_deref(), Some("sess-1"));
     assert!(!summary.is_error);
@@ -43,7 +46,9 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"done","ses
     assert_eq!(summary.entries.len(), 4);
     assert!(matches!(&summary.entries[2], TranscriptEntry::ToolUse { name, .. } if name == "Bash"));
     assert!(events.contains(&AgentEvent::TextDelta { text: "Wor".into() }));
-    assert!(events.contains(&AgentEvent::Stderr { text: "progress".into() }));
+    assert!(events.contains(&AgentEvent::Stderr {
+        text: "progress".into()
+    }));
 
     agent.run_turn("again", |_| {}).await.unwrap();
     let args = std::fs::read_to_string(dir.path().join("args")).unwrap();
@@ -54,8 +59,15 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"done","ses
 #[tokio::test]
 async fn missing_result_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
-    let config = ClaudeCliConfig { binary: "false".into(), workdir: dir.path().to_str().unwrap().into(), ..Default::default() };
-    let mut agent = Agent::new(Arc::new(ClaudeCliProvider::new(Arc::new(LocalLauncher), config)));
+    let config = ClaudeCliConfig {
+        binary: "false".into(),
+        workdir: dir.path().to_str().unwrap().into(),
+        ..Default::default()
+    };
+    let mut agent = Agent::new(Arc::new(ClaudeCliProvider::new(
+        Arc::new(LocalLauncher),
+        config,
+    )));
     let summary = agent.run_turn("x", |_| {}).await.unwrap();
     assert!(summary.is_error);
     assert_eq!(summary.exit_code, Some(1));

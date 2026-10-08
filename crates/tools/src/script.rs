@@ -17,7 +17,10 @@ pub struct ScriptTool {
 
 impl ScriptTool {
     pub fn new(manifest: ToolManifest, container_dir: impl Into<String>) -> Self {
-        Self { manifest, container_dir: container_dir.into() }
+        Self {
+            manifest,
+            container_dir: container_dir.into(),
+        }
     }
 
     pub fn manifest(&self) -> &ToolManifest {
@@ -44,12 +47,18 @@ impl Tool for ScriptTool {
         self.manifest.input_schema.as_ref().expect("validated")
     }
 
-    async fn call(&self, sandbox: &dyn SandboxBackend, container: &str, input: Value) -> crate::Result<ToolOutput> {
+    async fn call(
+        &self,
+        sandbox: &dyn SandboxBackend,
+        container: &str,
+        input: Value,
+    ) -> crate::Result<ToolOutput> {
         let input = input.to_string();
         let mut spec = ExecSpec::new(["sh", "-c", self.manifest.run.as_str()]);
         spec.workdir = Some(self.container_dir.clone());
         spec.env.insert("NUCLEUS_TOOL_INPUT".into(), input.clone());
-        spec.env.insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
+        spec.env
+            .insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
         spec.stdin = true;
         let mut handle = sandbox.exec(container, &spec).await?;
         if let Some(mut stdin) = handle.stdin.take() {
@@ -74,9 +83,15 @@ impl Tool for ScriptTool {
                     content.push_str("\n[stderr]\n");
                     content.push_str(&String::from_utf8_lossy(&err));
                 }
-                Ok(ToolOutput { content, is_error: code != Some(0) })
+                Ok(ToolOutput {
+                    content,
+                    is_error: code != Some(0),
+                })
             }
-            Err(_) => Ok(ToolOutput { content: format!("timed out after {}s", self.manifest.timeout_secs), is_error: true }),
+            Err(_) => Ok(ToolOutput {
+                content: format!("timed out after {}s", self.manifest.timeout_secs),
+                is_error: true,
+            }),
         }
     }
 }

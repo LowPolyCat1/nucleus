@@ -46,19 +46,29 @@ pub trait Tool: Send + Sync {
     fn description(&self) -> &str;
     fn input_schema(&self) -> &Value;
     /// Run the tool inside `container`.
-    async fn call(&self, sandbox: &dyn SandboxBackend, container: &str, input: Value) -> Result<ToolOutput>;
+    async fn call(
+        &self,
+        sandbox: &dyn SandboxBackend,
+        container: &str,
+        input: Value,
+    ) -> Result<ToolOutput>;
 }
 
 /// All approved tools in the library at `root`. Invalid manifests are skipped with a warning.
 pub fn load_registry(root: &Path) -> Vec<ScriptTool> {
     let mut tools = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root) else { return tools };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return tools;
+    };
     for e in entries.flatten() {
         if !e.path().join(MANIFEST_FILE).is_file() {
             continue;
         }
         match ToolManifest::load(&e.path()) {
-            Ok(m) => tools.push(ScriptTool::new(m, format!("{TOOLS_MOUNT}/{}", e.file_name().to_string_lossy()))),
+            Ok(m) => tools.push(ScriptTool::new(
+                m,
+                format!("{TOOLS_MOUNT}/{}", e.file_name().to_string_lossy()),
+            )),
             Err(err) => eprintln!("skipping tool {}: {err:#}", e.path().display()),
         }
     }

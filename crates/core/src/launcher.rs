@@ -45,7 +45,10 @@ mod local {
     #[async_trait]
     impl ProcessLauncher for LocalLauncher {
         async fn launch(&self, spec: LaunchSpec) -> crate::Result<LaunchedProcess> {
-            let (prog, args) = spec.argv.split_first().ok_or_else(|| anyhow::anyhow!("empty argv"))?;
+            let (prog, args) = spec
+                .argv
+                .split_first()
+                .ok_or_else(|| anyhow::anyhow!("empty argv"))?;
             let mut cmd = tokio::process::Command::new(prog);
             cmd.args(args)
                 .envs(&spec.env)
@@ -59,7 +62,11 @@ mod local {
             let mut child = cmd.spawn()?;
             let (tx, rx) = futures::channel::mpsc::unbounded();
             for (mut pipe, is_err) in [
-                (Box::new(child.stdout.take().unwrap()) as Box<dyn tokio::io::AsyncRead + Send + Unpin>, false),
+                (
+                    Box::new(child.stdout.take().unwrap())
+                        as Box<dyn tokio::io::AsyncRead + Send + Unpin>,
+                    false,
+                ),
                 (Box::new(child.stderr.take().unwrap()), true),
             ] {
                 let tx = tx.clone();
@@ -70,7 +77,11 @@ mod local {
                             Ok(0) | Err(_) => break,
                             Ok(n) => {
                                 let chunk = buf[..n].to_vec();
-                                let item = if is_err { ProcessOutput::Stderr(chunk) } else { ProcessOutput::Stdout(chunk) };
+                                let item = if is_err {
+                                    ProcessOutput::Stderr(chunk)
+                                } else {
+                                    ProcessOutput::Stdout(chunk)
+                                };
                                 if tx.unbounded_send(Ok(item)).is_err() {
                                     break;
                                 }
@@ -81,7 +92,10 @@ mod local {
             }
             drop(tx);
             let exit = async move { Ok(child.wait().await?.code().map(i64::from)) }.boxed();
-            Ok(LaunchedProcess { output: rx.boxed(), exit })
+            Ok(LaunchedProcess {
+                output: rx.boxed(),
+                exit,
+            })
         }
     }
 }

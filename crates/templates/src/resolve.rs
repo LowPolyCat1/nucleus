@@ -55,38 +55,61 @@ pub fn resolve(
             MountKind::Readonly => MountMode::ReadOnly,
             MountKind::Overlay if overlay_supported => MountMode::Overlay,
             MountKind::Overlay => {
-                bail!("template {} needs an overlay mount, which requires Podman", m.name)
+                bail!(
+                    "template {} needs an overlay mount, which requires Podman",
+                    m.name
+                )
             }
             MountKind::Worktree { path } => {
                 let path = path.trim_end_matches('/').to_string();
                 for (other, other_path) in &worktree_paths {
                     let nested = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}/"));
                     if nested(&path, other_path) || nested(other_path, &path) {
-                        bail!("templates {other} and {} both claim worktree path {path}", m.name);
+                        bail!(
+                            "templates {other} and {} both claim worktree path {path}",
+                            m.name
+                        );
                     }
                 }
                 worktree_paths.push((m.name.clone(), path.clone()));
                 out.excludes.push(format!("/{path}"));
                 // Tools that need the directory inside the worktree often write caches into it.
-                if overlay_supported { MountMode::Overlay } else { MountMode::ReadOnly }
+                if overlay_supported {
+                    MountMode::Overlay
+                } else {
+                    MountMode::ReadOnly
+                }
             }
         };
-        out.binds.push(BindMount { source: t.built.clone(), target: m.mount_path(), mode });
+        out.binds.push(BindMount {
+            source: t.built.clone(),
+            target: m.mount_path(),
+            mode,
+        });
         for (k, v) in &m.env {
             if let Some(owner) = owners.get(k) {
                 bail!("templates {owner} and {} both set {k}", m.name);
             }
             if lists.contains_key(k) {
-                bail!("{k} is a list variable in another template but a plain variable in {}", m.name);
+                bail!(
+                    "{k} is a list variable in another template but a plain variable in {}",
+                    m.name
+                );
             }
             owners.insert(k.clone(), m.name.clone());
             out.env.insert(k.clone(), v.clone());
         }
         for (k, v) in &m.path_env {
             if let Some(owner) = owners.get(k) {
-                bail!("{k} is set as a plain variable by {owner} but used as a list by {}", m.name);
+                bail!(
+                    "{k} is set as a plain variable by {owner} but used as a list by {}",
+                    m.name
+                );
             }
-            lists.entry(k.clone()).or_default().extend(v.iter().cloned());
+            lists
+                .entry(k.clone())
+                .or_default()
+                .extend(v.iter().cloned());
         }
     }
     for (k, mut entries) in lists {
@@ -106,16 +129,26 @@ mod tests {
 
     fn t(toml_text: &str) -> TemplateMount {
         let manifest = TemplateManifest::parse(toml_text).unwrap();
-        TemplateMount { built: format!("/builds/{}", manifest.name).into(), manifest }
+        TemplateMount {
+            built: format!("/builds/{}", manifest.name).into(),
+            manifest,
+        }
     }
 
     #[test]
     fn combines_in_order() {
-        let a = t("name='a'\nmount={mode='readonly'}\npath_env={PATH=['/deps/a/bin']}\nenv={A_HOME='/deps/a'}\n[build]\ncommand='x'");
-        let b = t("name='b'\nmount={mode='worktree',path='node_modules'}\npath_env={PATH=['/workspace/node_modules/.bin']}\n[build]\ncommand='x'");
+        let a = t(
+            "name='a'\nmount={mode='readonly'}\npath_env={PATH=['/deps/a/bin']}\nenv={A_HOME='/deps/a'}\n[build]\ncommand='x'",
+        );
+        let b = t(
+            "name='b'\nmount={mode='worktree',path='node_modules'}\npath_env={PATH=['/workspace/node_modules/.bin']}\n[build]\ncommand='x'",
+        );
         let base = BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]);
         let r = resolve(&[a, b], &base, &BTreeMap::new(), false).unwrap();
-        assert_eq!(r.env["PATH"], "/deps/a/bin:/workspace/node_modules/.bin:/usr/bin");
+        assert_eq!(
+            r.env["PATH"],
+            "/deps/a/bin:/workspace/node_modules/.bin:/usr/bin"
+        );
         assert_eq!(r.env["A_HOME"], "/deps/a");
         assert_eq!(r.excludes, vec!["/node_modules"]);
         assert_eq!(r.binds[0].target, "/deps/a");
@@ -130,14 +163,28 @@ mod tests {
         assert!(e.to_string().contains("both set X"));
 
         let reserved = BTreeMap::from([("X".to_string(), "cache cargo".to_string())]);
-        assert!(resolve(&[a.clone()], &BTreeMap::new(), &reserved, false).is_err());
+        assert!(resolve(std::slice::from_ref(&a), &BTreeMap::new(), &reserved, false).is_err());
 
         let w1 = t("name='w1'\nmount={mode='worktree',path='vendor'}\n[build]\ncommand='x'");
         let w2 = t("name='w2'\nmount={mode='worktree',path='vendor/sub'}\n[build]\ncommand='x'");
         assert!(resolve(&[w1, w2], &BTreeMap::new(), &BTreeMap::new(), false).is_err());
 
         let o = t("name='o'\nmount={mode='overlay'}\n[build]\ncommand='x'");
-        assert!(resolve(&[o.clone()], &BTreeMap::new(), &BTreeMap::new(), false).is_err());
-        assert_eq!(resolve(&[o], &BTreeMap::new(), &BTreeMap::new(), true).unwrap().binds[0].mode, MountMode::Overlay);
+        assert!(
+            resolve(
+                std::slice::from_ref(&o),
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                false
+            )
+            .is_err()
+        );
+        assert_eq!(
+            resolve(&[o], &BTreeMap::new(), &BTreeMap::new(), true)
+                .unwrap()
+                .binds[0]
+                .mode,
+            MountMode::Overlay
+        );
     }
 }

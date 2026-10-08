@@ -37,7 +37,11 @@ impl GixVcs {
             .workdir()
             .ok_or_else(|| anyhow!("bare repositories are not supported"))?
             .to_path_buf();
-        Ok(Self { repo: repo.into_sync(), workdir, strategy })
+        Ok(Self {
+            repo: repo.into_sync(),
+            workdir,
+            strategy,
+        })
     }
 
     /// Initialise a new repository with an initial empty commit on `main`. Used for the skills,
@@ -48,7 +52,17 @@ impl GixVcs {
         git(path, &["init", "-q", "-b", "main"]).await?;
         git(
             path,
-            &["-c", "user.name=nucleus", "-c", "user.email=nucleus@localhost", "commit", "-q", "--allow-empty", "-m", "Initialise library"],
+            &[
+                "-c",
+                "user.name=nucleus",
+                "-c",
+                "user.email=nucleus@localhost",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "Initialise library",
+            ],
         )
         .await?;
         Self::open(path)
@@ -104,7 +118,9 @@ fn walk(
 ) -> Result<Vec<CommitInfo>> {
     let walk = repo
         .rev_walk(tips)
-        .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
+        .sorting(gix::revision::walk::Sorting::ByCommitTime(
+            Default::default(),
+        ))
         .with_hidden(hidden)
         .all()
         .map_err(|e| anyhow!("{e}"))?;
@@ -120,7 +136,11 @@ fn read_blob(repo: &gix::Repository, id: gix::ObjectId) -> Result<Vec<u8>> {
     if id.is_null() {
         return Ok(Vec::new());
     }
-    Ok(repo.find_object(id).map_err(|e| anyhow!("{e}"))?.detach().data)
+    Ok(repo
+        .find_object(id)
+        .map_err(|e| anyhow!("{e}"))?
+        .detach()
+        .data)
 }
 
 #[async_trait]
@@ -136,13 +156,19 @@ impl Vcs for GixVcs {
     async fn branches(&self) -> Result<Vec<BranchInfo>> {
         let strategy = self.strategy.clone();
         self.blocking(move |repo| {
-            let head = repo.head_name().ok().flatten().map(|n| n.as_bstr().to_string());
+            let head = repo
+                .head_name()
+                .ok()
+                .flatten()
+                .map(|n| n.as_bstr().to_string());
             let platform = repo.references().map_err(|e| anyhow!("{e}"))?;
             let mut out = Vec::new();
             for r in platform.all().map_err(|e| anyhow!("{e}"))? {
                 let mut r = r.map_err(|e| anyhow!("{e}"))?;
                 let full_ref = r.name().as_bstr().to_string();
-                let Some(kind) = strategy.classify(&full_ref) else { continue };
+                let Some(kind) = strategy.classify(&full_ref) else {
+                    continue;
+                };
                 let Ok(id) = r.peel_to_id() else { continue };
                 let name = full_ref
                     .strip_prefix("refs/heads/")
@@ -165,7 +191,8 @@ impl Vcs for GixVcs {
 
     async fn resolve(&self, rev: &str) -> Result<String> {
         let rev = rev.to_string();
-        self.blocking(move |repo| Ok(resolve_id(&repo, &rev)?.to_string())).await
+        self.blocking(move |repo| Ok(resolve_id(&repo, &rev)?.to_string()))
+            .await
     }
 
     async fn create_branch(&self, name: &str, start: &str) -> Result<()> {
@@ -186,7 +213,9 @@ impl Vcs for GixVcs {
 
     async fn delete_branch(&self, name: &str) -> Result<()> {
         // `git branch -D` also cleans up config sections and the reflog.
-        git(&self.workdir, &["branch", "-D", "--", name]).await.map(drop)
+        git(&self.workdir, &["branch", "-D", "--", name])
+            .await
+            .map(drop)
     }
 
     async fn log(&self, rev: &str, limit: usize) -> Result<Vec<CommitInfo>> {
@@ -201,7 +230,10 @@ impl Vcs for GixVcs {
     async fn graph(&self, tips: &[String], limit: usize) -> Result<Vec<CommitInfo>> {
         let tips = tips.to_vec();
         self.blocking(move |repo| {
-            let ids = tips.iter().map(|t| resolve_id(&repo, t)).collect::<Result<Vec<_>>>()?;
+            let ids = tips
+                .iter()
+                .map(|t| resolve_id(&repo, t))
+                .collect::<Result<Vec<_>>>()?;
             if ids.is_empty() {
                 return Ok(Vec::new());
             }
@@ -214,7 +246,10 @@ impl Vcs for GixVcs {
         let (rev, hidden) = (rev.to_string(), hidden.to_vec());
         self.blocking(move |repo| {
             let id = resolve_id(&repo, &rev)?;
-            let hidden = hidden.iter().map(|h| resolve_id(&repo, h)).collect::<Result<Vec<_>>>()?;
+            let hidden = hidden
+                .iter()
+                .map(|h| resolve_id(&repo, h))
+                .collect::<Result<Vec<_>>>()?;
             walk(&repo, vec![id], hidden, usize::MAX)
         })
         .await
@@ -250,19 +285,62 @@ impl Vcs for GixVcs {
             let mut out = Vec::new();
             for change in changes {
                 let (path, old_path, status, old_id, new_id, mode) = match change {
-                    C::Addition { location, id, entry_mode, .. } => {
-                        (location, None, FileStatus::Added, gix::ObjectId::null(id.kind()), id, entry_mode)
-                    }
-                    C::Deletion { location, id, entry_mode, .. } => {
-                        (location, None, FileStatus::Deleted, id, gix::ObjectId::null(id.kind()), entry_mode)
-                    }
-                    C::Modification { location, previous_id, id, entry_mode, .. } => {
-                        (location, None, FileStatus::Modified, previous_id, id, entry_mode)
-                    }
-                    C::Rewrite { source_location, location, source_id, id, entry_mode, copy, .. } => (
+                    C::Addition {
+                        location,
+                        id,
+                        entry_mode,
+                        ..
+                    } => (
+                        location,
+                        None,
+                        FileStatus::Added,
+                        gix::ObjectId::null(id.kind()),
+                        id,
+                        entry_mode,
+                    ),
+                    C::Deletion {
+                        location,
+                        id,
+                        entry_mode,
+                        ..
+                    } => (
+                        location,
+                        None,
+                        FileStatus::Deleted,
+                        id,
+                        gix::ObjectId::null(id.kind()),
+                        entry_mode,
+                    ),
+                    C::Modification {
+                        location,
+                        previous_id,
+                        id,
+                        entry_mode,
+                        ..
+                    } => (
+                        location,
+                        None,
+                        FileStatus::Modified,
+                        previous_id,
+                        id,
+                        entry_mode,
+                    ),
+                    C::Rewrite {
+                        source_location,
+                        location,
+                        source_id,
+                        id,
+                        entry_mode,
+                        copy,
+                        ..
+                    } => (
                         location,
                         Some(source_location.to_string()),
-                        if copy { FileStatus::Copied } else { FileStatus::Renamed },
+                        if copy {
+                            FileStatus::Copied
+                        } else {
+                            FileStatus::Renamed
+                        },
                         source_id,
                         id,
                         entry_mode,
@@ -292,13 +370,23 @@ impl Vcs for GixVcs {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let p = path.to_str().ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
-        git(&self.workdir, &["worktree", "add", "--quiet", p, branch]).await.map(drop)
+        let p = path
+            .to_str()
+            .ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
+        git(&self.workdir, &["worktree", "add", "--quiet", p, branch])
+            .await
+            .map(drop)
     }
 
     async fn remove_worktree(&self, path: &Path) -> Result<()> {
-        let p = path.to_str().ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
-        let out = git_output(&self.workdir, &["worktree", "remove", "--force", "--force", p]).await?;
+        let p = path
+            .to_str()
+            .ok_or_else(|| anyhow!("non utf-8 worktree path"))?;
+        let out = git_output(
+            &self.workdir,
+            &["worktree", "remove", "--force", "--force", p],
+        )
+        .await?;
         if !out.status.success() {
             // The directory may already be gone (crash, manual delete); drop the stale metadata.
             if path.exists() {
@@ -322,7 +410,17 @@ impl Vcs for GixVcs {
         }
         git(
             worktree,
-            &["-c", "user.name=nucleus agent", "-c", "user.email=agent@nucleus.localhost", "commit", "-q", "--no-verify", "-m", message],
+            &[
+                "-c",
+                "user.name=nucleus agent",
+                "-c",
+                "user.email=agent@nucleus.localhost",
+                "commit",
+                "-q",
+                "--no-verify",
+                "-m",
+                message,
+            ],
         )
         .await?;
         Ok(Some(git(worktree, &["rev-parse", "HEAD"]).await?))
@@ -338,19 +436,33 @@ impl Vcs for GixVcs {
         // If the branch is checked out somewhere, merge in that working copy so it stays in sync.
         let checked_out = std::iter::once(WorktreeInfo {
             path: self.workdir.clone(),
-            branch: self.repo.to_thread_local().head_name().ok().flatten().map(|n| n.shorten().to_string()),
+            branch: self
+                .repo
+                .to_thread_local()
+                .head_name()
+                .ok()
+                .flatten()
+                .map(|n| n.shorten().to_string()),
         })
         .chain(self.worktrees().await?)
         .find(|w| w.branch.as_deref() == Some(into));
         if let Some(wt) = checked_out {
-            let out = git_output(&wt.path, &["merge", "--no-edit", "-m", message, &from_id]).await?;
+            let out =
+                git_output(&wt.path, &["merge", "--no-edit", "-m", message, &from_id]).await?;
             if !out.status.success() {
-                let conflicts = git(&wt.path, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default();
+                let conflicts = git(&wt.path, &["diff", "--name-only", "--diff-filter=U"])
+                    .await
+                    .unwrap_or_default();
                 git_output(&wt.path, &["merge", "--abort"]).await.ok();
                 if conflicts.is_empty() {
-                    bail!("merge failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+                    bail!(
+                        "merge failed: {}",
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    );
                 }
-                return Ok(MergeOutcome::Conflicts { paths: conflicts.lines().map(str::to_string).collect() });
+                return Ok(MergeOutcome::Conflicts {
+                    paths: conflicts.lines().map(str::to_string).collect(),
+                });
             }
             let head = git(&wt.path, &["rev-parse", "HEAD"]).await?;
             return Ok(if base.as_deref() == Some(into_id.as_str()) {
@@ -365,20 +477,49 @@ impl Vcs for GixVcs {
             return Ok(MergeOutcome::FastForward { commit: from_id });
         }
         // Not checked out anywhere: merge without touching any working copy.
-        let out = git_output(&self.workdir, &["merge-tree", "--write-tree", "--name-only", &into_id, &from_id]).await?;
+        let out = git_output(
+            &self.workdir,
+            &[
+                "merge-tree",
+                "--write-tree",
+                "--name-only",
+                &into_id,
+                &from_id,
+            ],
+        )
+        .await?;
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let mut lines = stdout.lines();
         let tree = lines.next().unwrap_or_default().to_string();
         if out.status.code() == Some(1) {
-            let paths = lines.take_while(|l| !l.is_empty()).map(str::to_string).collect();
+            let paths = lines
+                .take_while(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect();
             return Ok(MergeOutcome::Conflicts { paths });
         }
         if !out.status.success() {
-            bail!("merge-tree failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+            bail!(
+                "merge-tree failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
         }
         let commit = git(
             &self.workdir,
-            &["-c", "user.name=nucleus", "-c", "user.email=nucleus@localhost", "commit-tree", &tree, "-p", &into_id, "-p", &from_id, "-m", message],
+            &[
+                "-c",
+                "user.name=nucleus",
+                "-c",
+                "user.email=nucleus@localhost",
+                "commit-tree",
+                &tree,
+                "-p",
+                &into_id,
+                "-p",
+                &from_id,
+                "-m",
+                message,
+            ],
         )
         .await?;
         git(&self.workdir, &["update-ref", &full, &commit, &into_id]).await?;

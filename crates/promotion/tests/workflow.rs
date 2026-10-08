@@ -1,13 +1,19 @@
 use nucleus_promotion::*;
 
 fn change(path: &str, content: Option<&str>) -> FileChange {
-    FileChange { path: path.into(), content: content.map(str::to_string), executable: false }
+    FileChange {
+        path: path.into(),
+        content: content.map(str::to_string),
+        executable: false,
+    }
 }
 
 #[tokio::test]
 async fn propose_approve_reject_revert() {
     let dir = tempfile::tempdir().unwrap();
-    let lib = Library::open_or_init(dir.path().join("skills"), LibraryKind::Skills).await.unwrap();
+    let lib = Library::open_or_init(dir.path().join("skills"), LibraryKind::Skills)
+        .await
+        .unwrap();
 
     let p = lib
         .propose(NewProposal {
@@ -27,11 +33,19 @@ async fn propose_approve_reject_revert() {
     assert_eq!(lib.diff(&p.id).await.unwrap()[0].path, "rust/SKILL.md");
 
     let commit = lib.approve(&p.id).await.unwrap();
-    assert_eq!(std::fs::read_to_string(lib.path("rust/SKILL.md")).unwrap(), "# Rust\n");
+    assert_eq!(
+        std::fs::read_to_string(lib.path("rust/SKILL.md")).unwrap(),
+        "# Rust\n"
+    );
     assert!(lib.proposals().await.unwrap().is_empty());
 
     let q = lib
-        .propose(NewProposal { title: "Bad".into(), rationale: "".into(), changes: vec![change("x.md", Some("x"))], source: None })
+        .propose(NewProposal {
+            title: "Bad".into(),
+            rationale: "".into(),
+            changes: vec![change("x.md", Some("x"))],
+            source: None,
+        })
         .await
         .unwrap();
     lib.reject(&q.id).await.unwrap();
@@ -44,11 +58,18 @@ async fn propose_approve_reject_revert() {
 
     for bad in ["../escape.md", "/abs.md", ".git/config", ""] {
         let r = lib
-            .propose(NewProposal { title: "t".into(), rationale: "".into(), changes: vec![change(bad, Some("x"))], source: None })
+            .propose(NewProposal {
+                title: "t".into(),
+                rationale: "".into(),
+                changes: vec![change(bad, Some("x"))],
+                source: None,
+            })
             .await;
         assert!(r.is_err(), "{bad}");
     }
     // Reopening an existing library works.
-    let again = Library::open_or_init(dir.path().join("skills"), LibraryKind::Skills).await.unwrap();
+    let again = Library::open_or_init(dir.path().join("skills"), LibraryKind::Skills)
+        .await
+        .unwrap();
     assert_eq!(again.history(10).await.unwrap().len(), 3);
 }

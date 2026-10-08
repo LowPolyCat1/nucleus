@@ -19,7 +19,11 @@ pub async fn build_agent_image(engine: Engine, tag: &str) -> anyhow::Result<Stri
         .output()
         .await?;
     std::fs::remove_dir_all(&dir).ok();
-    let log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     if !out.status.success() {
         bail!("{cli} build failed:\n{log}");
     }

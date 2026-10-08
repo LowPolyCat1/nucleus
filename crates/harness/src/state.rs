@@ -81,10 +81,15 @@ impl State {
 
     /// Atomic write, readable only by the user (it holds provider credentials).
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
-        use std::os::unix::fs::OpenOptionsExt;
         use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
         let tmp = path.with_extension("tmp");
-        let mut f = std::fs::OpenOptions::new().create(true).write(true).truncate(true).mode(0o600).open(&tmp)?;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?;
         f.write_all(&serde_json::to_vec_pretty(self)?)?;
         f.sync_all()?;
         std::fs::rename(tmp, path)?;
@@ -92,18 +97,30 @@ impl State {
     }
 
     pub fn workspace(&self, id: &str) -> anyhow::Result<&Workspace> {
-        self.workspaces.iter().find(|w| w.id == id).ok_or_else(|| anyhow::anyhow!("no workspace {id}"))
+        self.workspaces
+            .iter()
+            .find(|w| w.id == id)
+            .ok_or_else(|| anyhow::anyhow!("no workspace {id}"))
     }
 
     pub fn workspace_mut(&mut self, id: &str) -> anyhow::Result<&mut Workspace> {
-        self.workspaces.iter_mut().find(|w| w.id == id).ok_or_else(|| anyhow::anyhow!("no workspace {id}"))
+        self.workspaces
+            .iter_mut()
+            .find(|w| w.id == id)
+            .ok_or_else(|| anyhow::anyhow!("no workspace {id}"))
     }
 
     pub fn conversation(&self, id: &str) -> anyhow::Result<&Conversation> {
-        self.conversations.iter().find(|c| c.id == id).ok_or_else(|| anyhow::anyhow!("no conversation {id}"))
+        self.conversations
+            .iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| anyhow::anyhow!("no conversation {id}"))
     }
 
     pub fn conversation_mut(&mut self, id: &str) -> anyhow::Result<&mut Conversation> {
-        self.conversations.iter_mut().find(|c| c.id == id).ok_or_else(|| anyhow::anyhow!("no conversation {id}"))
+        self.conversations
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or_else(|| anyhow::anyhow!("no conversation {id}"))
     }
 }

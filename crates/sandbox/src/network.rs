@@ -39,7 +39,10 @@ fn normalize(host: &str) -> String {
     let h = host.trim().to_ascii_lowercase();
     let h = h.split("://").last().unwrap_or_default();
     let h = h.split('/').next().unwrap_or_default();
-    h.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map_or(h, |(h, _)| h).to_string()
+    h.rsplit_once(':')
+        .filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit()))
+        .map_or(h, |(h, _)| h)
+        .to_string()
 }
 
 #[cfg(test)]
@@ -49,20 +52,33 @@ mod tests {
     #[test]
     fn plans() {
         let req = vec!["api.anthropic.com".to_string()];
-        assert_eq!(EgressPlan::for_policy(&NetworkPolicy::None, &[]), EgressPlan::Isolated);
+        assert_eq!(
+            EgressPlan::for_policy(&NetworkPolicy::None, &[]),
+            EgressPlan::Isolated
+        );
         assert_eq!(
             EgressPlan::for_policy(&NetworkPolicy::None, &req),
             EgressPlan::Proxied { allow: req.clone() }
         );
         assert_eq!(
             EgressPlan::for_policy(
-                &NetworkPolicy::Allowlist(vec!["https://Registry.npmjs.org/".into(), "pypi.org:443".into()]),
+                &NetworkPolicy::Allowlist(vec![
+                    "https://Registry.npmjs.org/".into(),
+                    "pypi.org:443".into()
+                ]),
                 &req
             ),
             EgressPlan::Proxied {
-                allow: vec!["api.anthropic.com".into(), "pypi.org".into(), "registry.npmjs.org".into()]
+                allow: vec![
+                    "api.anthropic.com".into(),
+                    "pypi.org".into(),
+                    "registry.npmjs.org".into()
+                ]
             }
         );
-        assert_eq!(EgressPlan::for_policy(&NetworkPolicy::Full, &req), EgressPlan::Open);
+        assert_eq!(
+            EgressPlan::for_policy(&NetworkPolicy::Full, &req),
+            EgressPlan::Open
+        );
     }
 }

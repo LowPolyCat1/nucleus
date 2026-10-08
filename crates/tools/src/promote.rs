@@ -29,16 +29,26 @@ pub async fn promote_candidate(
     source: Option<String>,
 ) -> crate::Result<CandidateReport> {
     let manifest = ToolManifest::load(host_dir)?;
-    let dir_name = host_dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let dir_name = host_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     if dir_name != manifest.name {
-        bail!("tool directory {dir_name} does not match manifest name {}", manifest.name);
+        bail!(
+            "tool directory {dir_name} does not match manifest name {}",
+            manifest.name
+        );
     }
     let Some(test) = manifest.test.clone() else {
-        bail!("tool {} has no test command; add `test = \"...\"` to tool.toml", manifest.name);
+        bail!(
+            "tool {} has no test command; add `test = \"...\"` to tool.toml",
+            manifest.name
+        );
     };
     let mut spec = ExecSpec::new(["sh", "-c", test.as_str()]);
     spec.workdir = Some(container_dir.to_string());
-    spec.env.insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
+    spec.env
+        .insert("NUCLEUS_WORKSPACE".into(), "/workspace".into());
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(manifest.timeout_secs.max(60) * 2),
         sandbox.exec_collect(container, &spec),
@@ -47,7 +57,11 @@ pub async fn promote_candidate(
     .context("tool test timed out")??;
     let test_log = format!("{}{}", result.stdout_str(), result.stderr_str());
     if !result.success() {
-        bail!("test for tool {} failed (exit {:?}):\n{test_log}", manifest.name, result.exit_code);
+        bail!(
+            "test for tool {} failed (exit {:?}):\n{test_log}",
+            manifest.name,
+            result.exit_code
+        );
     }
 
     let mut changes = Vec::new();
@@ -55,8 +69,16 @@ pub async fn promote_candidate(
     let exists = library.root().join(&manifest.name).exists();
     let proposal = library
         .propose(NewProposal {
-            title: format!("{} tool {}", if exists { "Update" } else { "Add" }, manifest.name),
-            rationale: format!("{}\n\nTest passed in the sandbox:\n{}", rationale.trim(), test_log.trim()),
+            title: format!(
+                "{} tool {}",
+                if exists { "Update" } else { "Add" },
+                manifest.name
+            ),
+            rationale: format!(
+                "{}\n\nTest passed in the sandbox:\n{}",
+                rationale.trim(),
+                test_log.trim()
+            ),
             changes,
             source,
         })
@@ -74,7 +96,10 @@ fn collect(root: &Path, dir: &Path, name: &str, out: &mut Vec<FileChange>) -> cr
             bail!("tool files must not be symlinks: {rel}");
         }
         if meta.is_dir() {
-            if matches!(e.file_name().to_str(), Some("node_modules" | "__pycache__" | ".git" | "target")) {
+            if matches!(
+                e.file_name().to_str(),
+                Some("node_modules" | "__pycache__" | ".git" | "target")
+            ) {
                 continue;
             }
             collect(root, &e.path(), name, out)?;
@@ -83,7 +108,8 @@ fn collect(root: &Path, dir: &Path, name: &str, out: &mut Vec<FileChange>) -> cr
         if meta.len() > MAX_FILE {
             bail!("tool file {rel} is larger than {MAX_FILE} bytes");
         }
-        let content = String::from_utf8(std::fs::read(e.path())?).with_context(|| format!("tool file {rel} is not text"))?;
+        let content = String::from_utf8(std::fs::read(e.path())?)
+            .with_context(|| format!("tool file {rel} is not text"))?;
         out.push(FileChange {
             path: format!("{name}/{rel}"),
             content: Some(content),

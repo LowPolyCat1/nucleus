@@ -14,9 +14,27 @@ pub struct Cache {
 }
 
 pub const DEFAULT_CACHES: &[Cache] = &[
-    Cache { name: "npm", volume: "nucleus-cache-npm", target: "/caches/npm", env: &[("npm_config_cache", "/caches/npm")] },
-    Cache { name: "pnpm", volume: "nucleus-cache-pnpm", target: "/caches/pnpm", env: &[("npm_config_store_dir", "/caches/pnpm")] },
-    Cache { name: "pip", volume: "nucleus-cache-pip", target: "/caches/pip", env: &[("PIP_CACHE_DIR", "/caches/pip"), ("UV_CACHE_DIR", "/caches/pip/uv")] },
+    Cache {
+        name: "npm",
+        volume: "nucleus-cache-npm",
+        target: "/caches/npm",
+        env: &[("npm_config_cache", "/caches/npm")],
+    },
+    Cache {
+        name: "pnpm",
+        volume: "nucleus-cache-pnpm",
+        target: "/caches/pnpm",
+        env: &[("npm_config_store_dir", "/caches/pnpm")],
+    },
+    Cache {
+        name: "pip",
+        volume: "nucleus-cache-pip",
+        target: "/caches/pip",
+        env: &[
+            ("PIP_CACHE_DIR", "/caches/pip"),
+            ("UV_CACHE_DIR", "/caches/pip/uv"),
+        ],
+    },
     Cache {
         name: "cargo",
         volume: "nucleus-cache-cargo",
@@ -34,7 +52,10 @@ pub fn mounts(caches: &[Cache]) -> (Vec<VolumeMount>, BTreeMap<String, String>) 
         .iter()
         .map(|c| {
             env.extend(c.env.iter().map(|(k, v)| (k.to_string(), v.to_string())));
-            VolumeMount { volume: c.volume.into(), target: c.target.into() }
+            VolumeMount {
+                volume: c.volume.into(),
+                target: c.target.into(),
+            }
         })
         .collect();
     (vols, env)

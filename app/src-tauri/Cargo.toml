@@ -3,3 +3,33 @@ name = "nucleus-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "nucleus desktop agent harness (Linux, macOS, Windows; no mobile targets)"
+
+[lib]
+name = "nucleus_app"
+# Desktop only: no mobile (staticlib/cdylib) targets.
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+futures.workspace = true
+nucleus-harness.workspace = true
+nucleus-promotion.workspace = true
+nucleus-sandbox.workspace = true
+nucleus-skills.workspace = true
+nucleus-core.workspace = true
+nucleus-templates.workspace = true
+nucleus-vcs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+nucleus-sandbox = { workspace = true, features = ["fake"] }
+tempfile.workspace = true

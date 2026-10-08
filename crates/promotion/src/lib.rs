@@ -73,7 +73,11 @@ impl Library {
     /// Open the library at `path`, initialising a repository there if needed.
     pub async fn open_or_init(path: impl AsRef<Path>, kind: LibraryKind) -> Result<Self> {
         let path = path.as_ref();
-        let vcs = if path.join(".git").exists() { GixVcs::open(path)? } else { GixVcs::init(path).await? };
+        let vcs = if path.join(".git").exists() {
+            GixVcs::open(path)?
+        } else {
+            GixVcs::init(path).await?
+        };
         Ok(Self { kind, vcs })
     }
 
@@ -116,7 +120,11 @@ impl Library {
                         #[cfg(unix)]
                         if c.executable {
                             use std::os::unix::fs::PermissionsExt;
-                            tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).await?;
+                            tokio::fs::set_permissions(
+                                &target,
+                                std::fs::Permissions::from_mode(0o755),
+                            )
+                            .await?;
                         }
                     }
                     None if target.is_dir() => tokio::fs::remove_dir_all(&target).await?,
@@ -149,7 +157,7 @@ impl Library {
                 out.push(self.get(id).await?);
             }
         }
-        out.sort_by(|a, b| b.created.cmp(&a.created));
+        out.sort_by_key(|p| std::cmp::Reverse(p.created));
         Ok(out)
     }
 
@@ -164,7 +172,9 @@ impl Library {
     }
 
     pub async fn diff(&self, id: &str) -> Result<Vec<FileDiff>> {
-        self.vcs.diff(MAIN, &format!("refs/heads/{PREFIX}{id}")).await
+        self.vcs
+            .diff(MAIN, &format!("refs/heads/{PREFIX}{id}"))
+            .await
     }
 
     /// Apply a proposal to `main`. Returns the resulting commit.
@@ -173,13 +183,20 @@ impl Library {
         let proposal = self.get(id).await?;
         let outcome = self
             .vcs
-            .merge(MAIN, &format!("refs/heads/{branch}"), &format!("Approve: {}", proposal.title))
+            .merge(
+                MAIN,
+                &format!("refs/heads/{branch}"),
+                &format!("Approve: {}", proposal.title),
+            )
             .await?;
         let commit = match outcome {
             MergeOutcome::FastForward { commit } | MergeOutcome::Merged { commit } => commit,
             MergeOutcome::UpToDate => self.vcs.resolve(MAIN).await?,
             MergeOutcome::Conflicts { paths } => {
-                bail!("proposal conflicts with the current library in {}; reject it and propose again", paths.join(", "))
+                bail!(
+                    "proposal conflicts with the current library in {}; reject it and propose again",
+                    paths.join(", ")
+                )
             }
         };
         self.vcs.delete_branch(&branch).await?;
@@ -200,7 +217,14 @@ impl Library {
     pub async fn revert(&self, commit: &str) -> Result<String> {
         let root = self.root().to_path_buf();
         let info = self.vcs.log(commit, 1).await?.remove(0);
-        let mut args = vec!["-c", "user.name=nucleus", "-c", "user.email=nucleus@localhost", "revert", "--no-edit"];
+        let mut args = vec![
+            "-c",
+            "user.name=nucleus",
+            "-c",
+            "user.email=nucleus@localhost",
+            "revert",
+            "--no-edit",
+        ];
         if info.parents.len() > 1 {
             args.extend(["-m", "1"]);
         }
@@ -219,7 +243,8 @@ fn validate_path(path: &str) -> Result<()> {
     let p = Path::new(path);
     let ok = !path.is_empty()
         && p.is_relative()
-        && p.components().all(|c| matches!(c, std::path::Component::Normal(_)))
+        && p.components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
         && !path.starts_with(".git");
     if !ok {
         bail!("invalid library path {path:?}");
@@ -228,7 +253,11 @@ fn validate_path(path: &str) -> Result<()> {
 }
 
 fn format_message(p: &NewProposal, id: &str) -> String {
-    let mut msg = format!("{}\n\n{}\n\nNucleus-Proposal: {id}\n", p.title.trim(), p.rationale.trim());
+    let mut msg = format!(
+        "{}\n\n{}\n\nNucleus-Proposal: {id}\n",
+        p.title.trim(),
+        p.rationale.trim()
+    );
     if let Some(src) = &p.source {
         msg.push_str(&format!("Nucleus-Source: {src}\n"));
     }

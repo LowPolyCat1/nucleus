@@ -23,7 +23,12 @@ pub async fn git(dir: &Path, args: &[&str]) -> crate::Result<String> {
 pub async fn git_output(dir: &Path, args: &[&str]) -> crate::Result<std::process::Output> {
     Command::new("git")
         .current_dir(dir)
-        .args(["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env_remove("GIT_DIR")

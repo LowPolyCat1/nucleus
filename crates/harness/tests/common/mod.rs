@@ -58,7 +58,21 @@ pub async fn commit_file(dir: &Path, file: &str, content: &str, msg: &str) {
     }
     std::fs::write(dir.join(file), content).unwrap();
     git(dir, &["add", "-A"]).await.unwrap();
-    git(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg]).await.unwrap();
+    git(
+        dir,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            msg,
+        ],
+    )
+    .await
+    .unwrap();
 }
 
 pub async fn fixture(engine: Engine) -> Fixture {
@@ -87,10 +101,21 @@ pub async fn fixture(engine: Engine) -> Fixture {
     .await
     .unwrap();
     let mut settings = Settings::default();
-    settings.provider_env.insert("ANTHROPIC_API_KEY".into(), "test-key".into());
-    settings.provider_env.insert("NUCLEUS_FAKE_DIR".into(), fake_dir.to_string_lossy().into());
+    settings
+        .provider_env
+        .insert("ANTHROPIC_API_KEY".into(), "test-key".into());
+    settings
+        .provider_env
+        .insert("NUCLEUS_FAKE_DIR".into(), fake_dir.to_string_lossy().into());
     harness.update_settings(settings).await.unwrap();
-    Fixture { dir, repo, fake_dir, backend, harness, events }
+    Fixture {
+        dir,
+        repo,
+        fake_dir,
+        backend,
+        harness,
+        events,
+    }
 }
 
 impl Fixture {
@@ -99,7 +124,11 @@ impl Fixture {
     }
 
     pub fn last_args(&self) -> Vec<String> {
-        std::fs::read_to_string(self.fake_dir.join("last-args")).unwrap().lines().map(str::to_string).collect()
+        std::fs::read_to_string(self.fake_dir.join("last-args"))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     pub fn events(&self) -> Vec<HarnessEvent> {

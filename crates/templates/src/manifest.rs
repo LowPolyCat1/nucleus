@@ -62,19 +62,32 @@ impl TemplateManifest {
 
     pub fn load(dir: &Path) -> crate::Result<Self> {
         let path = dir.join(MANIFEST_FILE);
-        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
         Self::parse(&text).with_context(|| format!("invalid {}", path.display()))
     }
 
     pub fn validate(&self) -> crate::Result<()> {
         let valid_name = !self.name.is_empty()
-            && self.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            && self
+                .name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
         if !valid_name {
-            bail!("template name {:?} must be non-empty and use only letters, digits, '-' and '_'", self.name);
+            bail!(
+                "template name {:?} must be non-empty and use only letters, digits, '-' and '_'",
+                self.name
+            );
         }
         if let MountKind::Worktree { path } = &self.mount {
             let p = Path::new(path);
-            if path.is_empty() || p.is_absolute() || !p.components().all(|c| matches!(c, std::path::Component::Normal(_))) || path.starts_with(".git") {
+            if path.is_empty()
+                || p.is_absolute()
+                || !p
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+                || path.starts_with(".git")
+            {
                 bail!("worktree mount path {path:?} must be a plain relative path");
             }
         }
@@ -98,7 +111,9 @@ impl TemplateManifest {
     pub fn mount_path(&self) -> String {
         match &self.mount {
             MountKind::Readonly | MountKind::Overlay => format!("/deps/{}", self.name),
-            MountKind::Worktree { path } => format!("{WORKSPACE_MOUNT}/{}", path.trim_end_matches('/')),
+            MountKind::Worktree { path } => {
+                format!("{WORKSPACE_MOUNT}/{}", path.trim_end_matches('/'))
+            }
         }
     }
 }
@@ -129,7 +144,12 @@ network = ["pypi.org", "files.pythonhosted.org"]
         )
         .unwrap();
         assert_eq!(n.mount_path(), "/workspace/node_modules");
-        assert!(TemplateManifest::parse("name = \"a b\"\nmount = { mode = \"readonly\" }\n[build]\ncommand = \"x\"\n").is_err());
+        assert!(
+            TemplateManifest::parse(
+                "name = \"a b\"\nmount = { mode = \"readonly\" }\n[build]\ncommand = \"x\"\n"
+            )
+            .is_err()
+        );
         assert!(TemplateManifest::parse("name = \"a\"\nmount = { mode = \"worktree\", path = \"../x\" }\n[build]\ncommand = \"x\"\n").is_err());
     }
 }

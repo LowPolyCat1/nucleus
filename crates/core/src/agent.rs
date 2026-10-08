@@ -9,11 +9,25 @@ use crate::{AgentEvent, LlmProvider, TurnRequest};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
 pub enum TranscriptEntry {
-    User { text: String },
-    Assistant { text: String },
-    ToolUse { id: String, name: String, input: serde_json::Value },
-    ToolResult { tool_use_id: String, content: String, is_error: bool },
-    Error { message: String },
+    User {
+        text: String,
+    },
+    Assistant {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        is_error: bool,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -36,7 +50,12 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(provider: Arc<dyn LlmProvider>) -> Self {
-        Self { provider, session_id: None, system_append: None, model: None }
+        Self {
+            provider,
+            session_id: None,
+            system_append: None,
+            model: None,
+        }
     }
 
     pub fn with_session(mut self, session_id: Option<String>) -> Self {
@@ -76,7 +95,9 @@ impl Agent {
             })
             .await?;
         let mut summary = TurnSummary {
-            entries: vec![TranscriptEntry::User { text: prompt.to_string() }],
+            entries: vec![TranscriptEntry::User {
+                text: prompt.to_string(),
+            }],
             ..Default::default()
         };
         let mut completed = false;
@@ -86,14 +107,27 @@ impl Agent {
                 AgentEvent::SessionStarted { session_id, .. } if !session_id.is_empty() => {
                     self.session_id = Some(session_id);
                 }
-                AgentEvent::AssistantText { text } => summary.entries.push(TranscriptEntry::Assistant { text }),
-                AgentEvent::ToolUse { id, name, input } => {
-                    summary.entries.push(TranscriptEntry::ToolUse { id, name, input })
+                AgentEvent::AssistantText { text } => {
+                    summary.entries.push(TranscriptEntry::Assistant { text })
                 }
-                AgentEvent::ToolResult { tool_use_id, content, is_error } => {
-                    summary.entries.push(TranscriptEntry::ToolResult { tool_use_id, content, is_error })
-                }
-                AgentEvent::TurnCompleted { is_error, session_id, cost_usd, .. } => {
+                AgentEvent::ToolUse { id, name, input } => summary
+                    .entries
+                    .push(TranscriptEntry::ToolUse { id, name, input }),
+                AgentEvent::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => summary.entries.push(TranscriptEntry::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                }),
+                AgentEvent::TurnCompleted {
+                    is_error,
+                    session_id,
+                    cost_usd,
+                    ..
+                } => {
                     completed = true;
                     summary.is_error = is_error;
                     summary.cost_usd = cost_usd;
@@ -111,8 +145,13 @@ impl Agent {
         }
         if !completed {
             summary.is_error = true;
-            let message = format!("{} exited without completing the turn", self.provider.name());
-            on_event(&AgentEvent::Error { message: message.clone() });
+            let message = format!(
+                "{} exited without completing the turn",
+                self.provider.name()
+            );
+            on_event(&AgentEvent::Error {
+                message: message.clone(),
+            });
             summary.entries.push(TranscriptEntry::Error { message });
         }
         summary.session_id = self.session_id.clone();

@@ -25,11 +25,15 @@ use anyhow::{anyhow, bail};
 use nucleus_core::claude_cli::{ClaudeCliConfig, ClaudeCliProvider, REQUIRED_HOSTS};
 use nucleus_core::{Agent, AgentEvent, LlmProvider, TranscriptEntry, TurnSummary};
 use nucleus_promotion::{Library, LibraryKind};
-use nucleus_sandbox::{BindMount, ContainerSpec, MountMode, NetworkPolicy, SandboxBackend, caches, current_user};
+use nucleus_sandbox::{
+    BindMount, ContainerSpec, MountMode, NetworkPolicy, SandboxBackend, caches, current_user,
+};
 use nucleus_skills::{Outcome, SkillLibrary};
 use nucleus_templates::{TemplateBuilder, TemplateManifest, TemplateMount};
 use nucleus_vcs::strategy::BranchStrategy;
-use nucleus_vcs::{BranchInfo, CommitInfo, FileDiff, GixVcs, MergeOutcome, NamespacedStrategy, Vcs, exclude};
+use nucleus_vcs::{
+    BranchInfo, CommitInfo, FileDiff, GixVcs, MergeOutcome, NamespacedStrategy, Vcs, exclude,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -90,9 +94,13 @@ pub enum DeleteMode {
 pub enum DeleteOutcome {
     Deleted,
     /// Nothing was deleted; these commits would be lost.
-    NeedsConfirmation { unmerged: Vec<CommitInfo> },
+    NeedsConfirmation {
+        unmerged: Vec<CommitInfo>,
+    },
     /// Nothing was deleted; merging failed.
-    MergeConflicts { paths: Vec<String> },
+    MergeConflicts {
+        paths: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,8 +135,14 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub async fn open(data_dir: impl Into<PathBuf>, backend: Arc<dyn SandboxBackend>, sink: EventSink) -> Result<Self> {
-        let paths = Paths { root: data_dir.into() };
+    pub async fn open(
+        data_dir: impl Into<PathBuf>,
+        backend: Arc<dyn SandboxBackend>,
+        sink: EventSink,
+    ) -> Result<Self> {
+        let paths = Paths {
+            root: data_dir.into(),
+        };
         std::fs::create_dir_all(&paths.root)?;
         let mut state = State::load(&paths.state())?;
         // A crash mid-turn leaves conversations marked running.
@@ -138,9 +152,15 @@ impl Harness {
             }
         }
         Ok(Self {
-            skills: SkillLibrary::open(paths.library(LibraryKind::Skills), paths.skill_usage()).await?,
-            tools: Library::open_or_init(paths.library(LibraryKind::Tools), LibraryKind::Tools).await?,
-            templates: Library::open_or_init(paths.library(LibraryKind::Templates), LibraryKind::Templates).await?,
+            skills: SkillLibrary::open(paths.library(LibraryKind::Skills), paths.skill_usage())
+                .await?,
+            tools: Library::open_or_init(paths.library(LibraryKind::Tools), LibraryKind::Tools)
+                .await?,
+            templates: Library::open_or_init(
+                paths.library(LibraryKind::Templates),
+                LibraryKind::Templates,
+            )
+            .await?,
             paths,
             backend,
             state: Mutex::new(state),
@@ -187,7 +207,12 @@ impl Harness {
     }
 
     async fn conversation_lock(&self, id: &str) -> Arc<Mutex<()>> {
-        self.locks.lock().await.entry(id.to_string()).or_default().clone()
+        self.locks
+            .lock()
+            .await
+            .entry(id.to_string())
+            .or_default()
+            .clone()
     }
 
     // ---- settings ----------------------------------------------------------------------
@@ -209,7 +234,11 @@ impl Harness {
     pub async fn add_workspace(&self, repo: &Path, name: Option<String>) -> Result<Workspace> {
         let vcs = GixVcs::open(repo)?;
         let repo = vcs.workdir().to_path_buf();
-        let name = name.unwrap_or_else(|| repo.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+        let name = name.unwrap_or_else(|| {
+            repo.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default()
+        });
         self.mutate(|s| {
             if s.workspaces.iter().any(|w| w.repo == repo) {
                 bail!("{} is already a workspace", repo.display());
@@ -242,10 +271,26 @@ impl Harness {
 
     /// Change a workspace's templates and network policy. Template conflicts are rejected here,
     /// not discovered later.
-    pub async fn configure_workspace(&self, id: &str, templates: Vec<String>, network: NetworkPolicy) -> Result<Workspace> {
+    pub async fn configure_workspace(
+        &self,
+        id: &str,
+        templates: Vec<String>,
+        network: NetworkPolicy,
+    ) -> Result<Workspace> {
         let manifests = self.load_templates(&templates)?;
-        let fake: Vec<_> = manifests.into_iter().map(|m| TemplateMount { built: PathBuf::from("/"), manifest: m }).collect();
-        nucleus_templates::resolve(&fake, &BTreeMap::new(), &reserved_env(), self.backend.engine().supports_overlay())?;
+        let fake: Vec<_> = manifests
+            .into_iter()
+            .map(|m| TemplateMount {
+                built: PathBuf::from("/"),
+                manifest: m,
+            })
+            .collect();
+        nucleus_templates::resolve(
+            &fake,
+            &BTreeMap::new(),
+            &reserved_env(),
+            self.backend.engine().supports_overlay(),
+        )?;
         self.mutate(|s| {
             let ws = s.workspace_mut(id)?;
             ws.templates = templates;
@@ -287,7 +332,10 @@ impl Harness {
             let s = self.state.lock().await;
             (s.workspace(workspace_id)?.clone(), s.settings.image.clone())
         };
-        let builder = TemplateBuilder { backend: self.backend.as_ref(), root: self.paths.template_builds() };
+        let builder = TemplateBuilder {
+            backend: self.backend.as_ref(),
+            root: self.paths.template_builds(),
+        };
         let mut out = Vec::new();
         for name in &ws.templates {
             let status = async {
@@ -299,10 +347,20 @@ impl Harness {
             }
             .await;
             out.push(match status {
-                Ok((description, fresh, id)) => {
-                    TemplateStatus { name: name.clone(), description, fresh, identity: Some(id), error: None }
-                }
-                Err(e) => TemplateStatus { name: name.clone(), description: String::new(), fresh: false, identity: None, error: Some(format!("{e:#}")) },
+                Ok((description, fresh, id)) => TemplateStatus {
+                    name: name.clone(),
+                    description,
+                    fresh,
+                    identity: Some(id),
+                    error: None,
+                },
+                Err(e) => TemplateStatus {
+                    name: name.clone(),
+                    description: String::new(),
+                    fresh: false,
+                    identity: None,
+                    error: Some(format!("{e:#}")),
+                },
             });
         }
         Ok(out)
@@ -314,17 +372,27 @@ impl Harness {
             let s = self.state.lock().await;
             (s.workspace(workspace_id)?.clone(), s.settings.image.clone())
         };
-        let builder = TemplateBuilder { backend: self.backend.as_ref(), root: self.paths.template_builds() };
+        let builder = TemplateBuilder {
+            backend: self.backend.as_ref(),
+            root: self.paths.template_builds(),
+        };
         let mut mounts = Vec::new();
         let mut identities = BTreeMap::new();
         for m in self.load_templates(&ws.templates)? {
-            self.emit(HarnessEvent::Progress { message: format!("Preparing template {}", m.name) });
+            self.emit(HarnessEvent::Progress {
+                message: format!("Preparing template {}", m.name),
+            });
             let outcome = builder.build(&m, &ws.repo, &image).await?;
             if outcome.built {
-                self.emit(HarnessEvent::Progress { message: format!("Built template {} ({})", m.name, outcome.identity) });
+                self.emit(HarnessEvent::Progress {
+                    message: format!("Built template {} ({})", m.name, outcome.identity),
+                });
             }
             identities.insert(m.name.clone(), outcome.identity.clone());
-            mounts.push(TemplateMount { manifest: m, built: outcome.path });
+            mounts.push(TemplateMount {
+                manifest: m,
+                built: outcome.path,
+            });
         }
         self.mutate(|s| {
             s.workspace_mut(workspace_id)?.template_builds = identities.clone();
@@ -332,7 +400,14 @@ impl Harness {
         })
         .await?;
         // Builds still recorded by another workspace stay; everything else for these templates goes.
-        let keep: Vec<String> = self.state.lock().await.workspaces.iter().flat_map(|w| w.template_builds.values().cloned()).collect();
+        let keep: Vec<String> = self
+            .state
+            .lock()
+            .await
+            .workspaces
+            .iter()
+            .flat_map(|w| w.template_builds.values().cloned())
+            .collect();
         for name in identities.keys() {
             builder.prune(name, &keep).await.ok();
         }
@@ -355,7 +430,12 @@ impl Harness {
     /// Commits reachable from all branches, for the branch tree.
     pub async fn graph(&self, workspace_id: &str, limit: usize) -> Result<Vec<CommitInfo>> {
         let vcs = self.vcs_for(workspace_id).await?;
-        let tips: Vec<String> = vcs.branches().await?.into_iter().map(|b| b.target).collect();
+        let tips: Vec<String> = vcs
+            .branches()
+            .await?
+            .into_iter()
+            .map(|b| b.target)
+            .collect();
         vcs.graph(&tips, limit).await
     }
 
@@ -366,7 +446,12 @@ impl Harness {
     // ---- conversations -----------------------------------------------------------------
 
     /// Start a conversation: branch from `base_branch`, add a worktree, start the container.
-    pub async fn create_conversation(&self, workspace_id: &str, base_branch: &str, title: &str) -> Result<Conversation> {
+    pub async fn create_conversation(
+        &self,
+        workspace_id: &str,
+        base_branch: &str,
+        title: &str,
+    ) -> Result<Conversation> {
         let ws = self.state.lock().await.workspace(workspace_id)?.clone();
         let vcs = self.workspace_vcs(&ws)?;
         let id = short_id();
@@ -375,7 +460,11 @@ impl Harness {
         let conv = Conversation {
             id: id.clone(),
             workspace_id: ws.id.clone(),
-            title: if title.trim().is_empty() { "New conversation".into() } else { title.trim().into() },
+            title: if title.trim().is_empty() {
+                "New conversation".into()
+            } else {
+                title.trim().into()
+            },
             base_branch: base_branch.to_string(),
             branch: branch.clone(),
             worktree: worktree.clone(),
@@ -419,8 +508,14 @@ impl Harness {
         std::fs::create_dir_all(&support)?;
         std::fs::write(support.join("mcp-server.js"), nucleus_tools::MCP_SERVER_JS)?;
         let tools = nucleus_tools::load_registry(self.tools.root());
-        std::fs::write(support.join("tools.json"), serde_json::to_vec_pretty(&nucleus_tools::tools_index(&tools))?)?;
-        std::fs::write(support.join("mcp.json"), serde_json::to_vec_pretty(&nucleus_tools::mcp_config(SUPPORT_MOUNT))?)?;
+        std::fs::write(
+            support.join("tools.json"),
+            serde_json::to_vec_pretty(&nucleus_tools::tools_index(&tools))?,
+        )?;
+        std::fs::write(
+            support.join("mcp.json"),
+            serde_json::to_vec_pretty(&nucleus_tools::mcp_config(SUPPORT_MOUNT))?,
+        )?;
         Ok(())
     }
 
@@ -435,9 +530,17 @@ impl Harness {
             .image_env(&settings.image)
             .await?
             .into_iter()
-            .filter_map(|e| e.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+            .filter_map(|e| {
+                e.split_once('=')
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+            })
             .collect();
-        let resolved = nucleus_templates::resolve(&templates, &image_env, &reserved_env(), self.backend.engine().supports_overlay())?;
+        let resolved = nucleus_templates::resolve(
+            &templates,
+            &image_env,
+            &reserved_env(),
+            self.backend.engine().supports_overlay(),
+        )?;
         let vcs = self.workspace_vcs(&ws)?;
         if !resolved.excludes.is_empty() {
             exclude::ensure_excluded(&vcs.common_dir(), &resolved.excludes)?;
@@ -454,15 +557,29 @@ impl Harness {
         spec.workdir = Some(WORKSPACE_MOUNT.into());
         spec.network = ws.network.clone();
         spec.required_hosts = REQUIRED_HOSTS.iter().map(|h| h.to_string()).collect();
-        spec.labels.insert(CONVERSATION_LABEL.into(), conv.id.clone());
-        spec.labels.insert("nucleus.workspace".into(), ws.id.clone());
-        let rw = |source: &Path, target: &str| BindMount { source: source.into(), target: target.into(), mode: MountMode::ReadWrite };
-        let ro = |source: &Path, target: &str| BindMount { source: source.into(), target: target.into(), mode: MountMode::ReadOnly };
+        spec.labels
+            .insert(CONVERSATION_LABEL.into(), conv.id.clone());
+        spec.labels
+            .insert("nucleus.workspace".into(), ws.id.clone());
+        let rw = |source: &Path, target: &str| BindMount {
+            source: source.into(),
+            target: target.into(),
+            mode: MountMode::ReadWrite,
+        };
+        let ro = |source: &Path, target: &str| BindMount {
+            source: source.into(),
+            target: target.into(),
+            mode: MountMode::ReadOnly,
+        };
         spec.binds.push(rw(&conv.worktree, WORKSPACE_MOUNT));
         spec.binds.push(rw(&home, HOME_MOUNT));
         // Approved skills, where the Claude CLI discovers SKILL.md files.
-        spec.binds.push(ro(self.skills.library().root(), &format!("{HOME_MOUNT}/.claude/skills")));
-        spec.binds.push(ro(self.tools.root(), nucleus_tools::TOOLS_MOUNT));
+        spec.binds.push(ro(
+            self.skills.library().root(),
+            &format!("{HOME_MOUNT}/.claude/skills"),
+        ));
+        spec.binds
+            .push(ro(self.tools.root(), nucleus_tools::TOOLS_MOUNT));
         spec.binds.push(ro(&support, SUPPORT_MOUNT));
         spec.binds.push(rw(&outbox, OUTBOX_MOUNT));
         spec.binds.extend(resolved.binds);
@@ -472,8 +589,10 @@ impl Harness {
         spec.env.extend(cache_env);
         spec.env.extend(resolved.env);
         spec.env.insert("HOME".into(), HOME_MOUNT.into());
-        spec.env.insert("NUCLEUS_WORKSPACE".into(), WORKSPACE_MOUNT.into());
-        spec.env.insert("NUCLEUS_OUTBOX_DIR".into(), OUTBOX_MOUNT.into());
+        spec.env
+            .insert("NUCLEUS_WORKSPACE".into(), WORKSPACE_MOUNT.into());
+        spec.env
+            .insert("NUCLEUS_OUTBOX_DIR".into(), OUTBOX_MOUNT.into());
         self.backend.remove(&conv.container).await.ok();
         self.backend.create(&spec).await?;
         Ok(())
@@ -481,7 +600,12 @@ impl Harness {
 
     /// Recreate the conversation's container if it is gone (after a reboot or engine restart).
     pub async fn ensure_container(&self, conversation_id: &str) -> Result<()> {
-        let conv = self.state.lock().await.conversation(conversation_id)?.clone();
+        let conv = self
+            .state
+            .lock()
+            .await
+            .conversation(conversation_id)?
+            .clone();
         let running = self
             .backend
             .list(Some((CONVERSATION_LABEL, &conv.id)))
@@ -516,16 +640,25 @@ impl Harness {
     /// and its changes are committed.
     pub async fn send_message(&self, conversation_id: &str, prompt: &str) -> Result<TurnSummary> {
         let lock = self.conversation_lock(conversation_id).await;
-        let _guard = lock.try_lock().map_err(|_| anyhow!("this conversation is already running a turn"))?;
+        let _guard = lock
+            .try_lock()
+            .map_err(|_| anyhow!("this conversation is already running a turn"))?;
         self.ensure_container(conversation_id).await?;
         let (conv, settings) = {
             let s = self.state.lock().await;
             (s.conversation(conversation_id)?.clone(), s.settings.clone())
         };
-        if !settings.provider_env.keys().any(|k| k == "ANTHROPIC_API_KEY" || k == "CLAUDE_CODE_OAUTH_TOKEN") {
+        if !settings
+            .provider_env
+            .keys()
+            .any(|k| k == "ANTHROPIC_API_KEY" || k == "CLAUDE_CODE_OAUTH_TOKEN")
+        {
             bail!("set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in settings first");
         }
-        let launcher = Arc::new(SandboxLauncher { backend: self.backend.clone(), container: conv.container.clone() });
+        let launcher = Arc::new(SandboxLauncher {
+            backend: self.backend.clone(),
+            container: conv.container.clone(),
+        });
         let config = ClaudeCliConfig {
             workdir: WORKSPACE_MOUNT.into(),
             model: settings.model.clone(),
@@ -534,8 +667,12 @@ impl Harness {
             ..Default::default()
         };
         let provider: Arc<dyn LlmProvider> = Arc::new(ClaudeCliProvider::new(launcher, config));
-        self.running.lock().await.insert(conv.id.clone(), provider.clone());
-        self.set_status(&conv.id, ConversationStatus::Running).await?;
+        self.running
+            .lock()
+            .await
+            .insert(conv.id.clone(), provider.clone());
+        self.set_status(&conv.id, ConversationStatus::Running)
+            .await?;
 
         let mut agent = Agent::new(provider).with_session(conv.session_id.clone());
         agent.set_system_append(Some(self.system_append(&conv)));
@@ -546,11 +683,17 @@ impl Harness {
             .run_turn(prompt, |event| {
                 if let AgentEvent::ToolUse { name, input, .. } = event
                     && name == "Skill"
-                    && let Some(skill) = input.get("skill").or_else(|| input.get("command")).and_then(|v| v.as_str())
+                    && let Some(skill) = input
+                        .get("skill")
+                        .or_else(|| input.get("command"))
+                        .and_then(|v| v.as_str())
                 {
                     used_skills.push(skill.to_string());
                 }
-                sink(HarnessEvent::Agent { conversation_id: conv_id.clone(), event: event.clone() });
+                sink(HarnessEvent::Agent {
+                    conversation_id: conv_id.clone(),
+                    event: event.clone(),
+                });
             })
             .await;
         self.running.lock().await.remove(&conv.id);
@@ -565,22 +708,39 @@ impl Harness {
         self.append_transcript(&conv.id, &summary.entries)?;
         for skill in &used_skills {
             self.skills.usage().record_use(skill).ok();
-            let outcome = if summary.is_error { Outcome::Failure } else { Outcome::Success };
+            let outcome = if summary.is_error {
+                Outcome::Failure
+            } else {
+                Outcome::Success
+            };
             self.skills.usage().record_outcome(skill, outcome).ok();
         }
         let vcs = self.vcs_for(&conv.workspace_id).await?;
-        let message = format!("Agent turn: {}\n\nConversation: {}", first_line(prompt, 60), conv.id);
+        let message = format!(
+            "Agent turn: {}\n\nConversation: {}",
+            first_line(prompt, 60),
+            conv.id
+        );
         match vcs.commit_all(&conv.worktree, &message).await {
-            Ok(Some(commit)) => self.emit(HarnessEvent::Committed { conversation_id: conv.id.clone(), commit }),
+            Ok(Some(commit)) => self.emit(HarnessEvent::Committed {
+                conversation_id: conv.id.clone(),
+                commit,
+            }),
             Ok(None) => {}
             Err(e) => self.emit(HarnessEvent::Agent {
                 conversation_id: conv.id.clone(),
-                event: AgentEvent::Error { message: format!("committing agent changes failed: {e:#}") },
+                event: AgentEvent::Error {
+                    message: format!("committing agent changes failed: {e:#}"),
+                },
             }),
         }
         self.process_outbox(&conv).await;
         let session = summary.session_id.clone();
-        let status = if summary.is_error { ConversationStatus::Error } else { ConversationStatus::Idle };
+        let status = if summary.is_error {
+            ConversationStatus::Error
+        } else {
+            ConversationStatus::Idle
+        };
         self.mutate(|s| {
             let c = s.conversation_mut(&conv.id)?;
             c.session_id = session;
@@ -588,7 +748,10 @@ impl Harness {
             Ok(())
         })
         .await?;
-        self.emit(HarnessEvent::Status { conversation_id: conv.id.clone(), status });
+        self.emit(HarnessEvent::Status {
+            conversation_id: conv.id.clone(),
+            status,
+        });
         Ok(summary)
     }
 
@@ -598,7 +761,10 @@ impl Harness {
             Ok(())
         })
         .await?;
-        self.emit(HarnessEvent::Status { conversation_id: id.to_string(), status });
+        self.emit(HarnessEvent::Status {
+            conversation_id: id.to_string(),
+            status,
+        });
         Ok(())
     }
 
@@ -622,7 +788,10 @@ impl Harness {
         use std::io::Write;
         let path = self.paths.conversation(id).join("transcript.jsonl");
         std::fs::create_dir_all(path.parent().unwrap())?;
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
         for e in entries {
             writeln!(f, "{}", serde_json::to_string(e)?)?;
         }
@@ -631,13 +800,23 @@ impl Harness {
 
     pub fn transcript(&self, id: &str) -> Result<Vec<TranscriptEntry>> {
         let path = self.paths.conversation(id).join("transcript.jsonl");
-        let Ok(text) = std::fs::read_to_string(path) else { return Ok(Vec::new()) };
-        Ok(text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Ok(Vec::new());
+        };
+        Ok(text
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect())
     }
 
     /// Changes the conversation made relative to where its branch diverged from the base.
     pub async fn conversation_diff(&self, conversation_id: &str) -> Result<Vec<FileDiff>> {
-        let conv = self.state.lock().await.conversation(conversation_id)?.clone();
+        let conv = self
+            .state
+            .lock()
+            .await
+            .conversation(conversation_id)?
+            .clone();
         let vcs = self.vcs_for(&conv.workspace_id).await?;
         let base = vcs
             .merge_base(&conv.base_branch, &conv.branch)
@@ -648,7 +827,12 @@ impl Harness {
 
     /// Commits on the agent branch not reachable from any local or origin branch.
     pub async fn unmerged_commits(&self, conversation_id: &str) -> Result<Vec<CommitInfo>> {
-        let conv = self.state.lock().await.conversation(conversation_id)?.clone();
+        let conv = self
+            .state
+            .lock()
+            .await
+            .conversation(conversation_id)?
+            .clone();
         let vcs = self.vcs_for(&conv.workspace_id).await?;
         let hidden: Vec<String> = vcs
             .branches()
@@ -660,15 +844,31 @@ impl Harness {
         vcs.unique_commits(&conv.branch, &hidden).await
     }
 
-    pub async fn merge_conversation(&self, conversation_id: &str, into: &str) -> Result<MergeOutcome> {
+    pub async fn merge_conversation(
+        &self,
+        conversation_id: &str,
+        into: &str,
+    ) -> Result<MergeOutcome> {
         let lock = self.conversation_lock(conversation_id).await;
-        let _guard = lock.try_lock().map_err(|_| anyhow!("wait for the running turn to finish"))?;
-        let conv = self.state.lock().await.conversation(conversation_id)?.clone();
+        let _guard = lock
+            .try_lock()
+            .map_err(|_| anyhow!("wait for the running turn to finish"))?;
+        let conv = self
+            .state
+            .lock()
+            .await
+            .conversation(conversation_id)?
+            .clone();
         if self.strategy.conversation_of(into).is_some() {
             bail!("merge into a local branch, not another agent branch");
         }
         let vcs = self.vcs_for(&conv.workspace_id).await?;
-        vcs.merge(into, &format!("refs/heads/{}", conv.branch), &format!("Merge {}: {}", conv.branch, conv.title)).await
+        vcs.merge(
+            into,
+            &format!("refs/heads/{}", conv.branch),
+            &format!("Merge {}: {}", conv.branch, conv.title),
+        )
+        .await
     }
 
     pub async fn rename_conversation(&self, id: &str, title: &str) -> Result<()> {
@@ -680,13 +880,29 @@ impl Harness {
     }
 
     /// Delete a conversation together with its branch, worktree and container.
-    pub async fn delete_conversation(&self, conversation_id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
+    pub async fn delete_conversation(
+        &self,
+        conversation_id: &str,
+        mode: DeleteMode,
+    ) -> Result<DeleteOutcome> {
         let lock = self.conversation_lock(conversation_id).await;
-        let _guard = lock.try_lock().map_err(|_| anyhow!("wait for the running turn to finish or cancel it"))?;
-        let conv = self.state.lock().await.conversation(conversation_id)?.clone();
+        let _guard = lock
+            .try_lock()
+            .map_err(|_| anyhow!("wait for the running turn to finish or cancel it"))?;
+        let conv = self
+            .state
+            .lock()
+            .await
+            .conversation(conversation_id)?
+            .clone();
         let vcs = self.vcs_for(&conv.workspace_id).await?;
         // Commit anything left in the worktree so the unmerged check sees it.
-        vcs.commit_all(&conv.worktree, &format!("Uncommitted agent changes\n\nConversation: {}", conv.id)).await.ok();
+        vcs.commit_all(
+            &conv.worktree,
+            &format!("Uncommitted agent changes\n\nConversation: {}", conv.id),
+        )
+        .await
+        .ok();
         match &mode {
             DeleteMode::Check => {
                 let unmerged = self.unmerged_commits(conversation_id).await?;
@@ -701,13 +917,15 @@ impl Harness {
                 if let MergeOutcome::Conflicts { paths } = outcome {
                     return Ok(DeleteOutcome::MergeConflicts { paths });
                 }
-                return Box::pin(self.delete_conversation(conversation_id, DeleteMode::Discard)).await;
+                return Box::pin(self.delete_conversation(conversation_id, DeleteMode::Discard))
+                    .await;
             }
             DeleteMode::KeepCopy { branch } => {
                 if self.strategy.conversation_of(branch).is_some() {
                     bail!("keep the copy outside the agent/ namespace");
                 }
-                vcs.create_branch(branch, &format!("refs/heads/{}", conv.branch)).await?;
+                vcs.create_branch(branch, &format!("refs/heads/{}", conv.branch))
+                    .await?;
             }
         }
         self.cancel(conversation_id).await.ok();
@@ -738,7 +956,8 @@ impl Harness {
     /// conversation no longer exists.
     pub async fn cleanup_orphans(&self) -> Result<CleanupReport> {
         let state = self.snapshot().await;
-        let known: std::collections::HashSet<&str> = state.conversations.iter().map(|c| c.id.as_str()).collect();
+        let known: std::collections::HashSet<&str> =
+            state.conversations.iter().map(|c| c.id.as_str()).collect();
         let mut report = CleanupReport::default();
         for c in self.backend.list(None).await? {
             if let Some(id) = c.labels.get(CONVERSATION_LABEL)
@@ -749,10 +968,16 @@ impl Harness {
             }
         }
         for ws in &state.workspaces {
-            let Ok(vcs) = self.workspace_vcs(ws) else { continue };
+            let Ok(vcs) = self.workspace_vcs(ws) else {
+                continue;
+            };
             for wt in vcs.worktrees().await.unwrap_or_default() {
                 let orphan = wt.path.starts_with(self.paths.worktrees())
-                    && wt.branch.as_deref().and_then(|b| self.strategy.conversation_of(b)).is_none_or(|id| !known.contains(id.as_str()));
+                    && wt
+                        .branch
+                        .as_deref()
+                        .and_then(|b| self.strategy.conversation_of(b))
+                        .is_none_or(|id| !known.contains(id.as_str()));
                 if orphan {
                     vcs.remove_worktree(&wt.path).await?;
                     report.worktrees.push(wt.path);
@@ -791,8 +1016,17 @@ impl Harness {
 /// setting one of them is a conflict.
 fn reserved_env() -> BTreeMap<String, String> {
     let (_, env) = caches::mounts(caches::DEFAULT_CACHES);
-    let mut owners: BTreeMap<String, String> = env.into_keys().map(|k| (k, "the shared package caches".to_string())).collect();
-    for k in ["HOME", "NUCLEUS_WORKSPACE", "NUCLEUS_OUTBOX_DIR", "HTTPS_PROXY", "HTTP_PROXY"] {
+    let mut owners: BTreeMap<String, String> = env
+        .into_keys()
+        .map(|k| (k, "the shared package caches".to_string()))
+        .collect();
+    for k in [
+        "HOME",
+        "NUCLEUS_WORKSPACE",
+        "NUCLEUS_OUTBOX_DIR",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+    ] {
         owners.insert(k.into(), "the harness".into());
     }
     owners
@@ -810,4 +1044,3 @@ fn first_line(s: &str, max: usize) -> String {
         line.to_string()
     }
 }
-

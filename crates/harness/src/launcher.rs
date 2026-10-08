@@ -14,8 +14,18 @@ pub struct SandboxLauncher {
 #[async_trait]
 impl ProcessLauncher for SandboxLauncher {
     async fn launch(&self, spec: LaunchSpec) -> nucleus_core::Result<LaunchedProcess> {
-        let exec = ExecSpec { cmd: spec.argv, env: spec.env, workdir: spec.workdir, user: None, stdin: false };
-        let (output, _stdin, exit) = self.backend.exec(&self.container, &exec).await?.into_parts();
+        let exec = ExecSpec {
+            cmd: spec.argv,
+            env: spec.env,
+            workdir: spec.workdir,
+            user: None,
+            stdin: false,
+        };
+        let (output, _stdin, exit) = self
+            .backend
+            .exec(&self.container, &exec)
+            .await?
+            .into_parts();
         let output = output
             .map(|c| {
                 c.map(|c| match c {

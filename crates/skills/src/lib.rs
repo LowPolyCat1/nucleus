@@ -58,14 +58,22 @@ impl SkillLibrary {
     /// All approved skills, by name.
     pub fn list(&self) -> Result<Vec<SkillSummary>> {
         let mut out = Vec::new();
-        let Ok(entries) = std::fs::read_dir(self.library.root()) else { return Ok(out) };
+        let Ok(entries) = std::fs::read_dir(self.library.root()) else {
+            return Ok(out);
+        };
         for e in entries.flatten() {
             let file = e.path().join(SKILL_FILE);
             if !file.is_file() {
                 continue;
             }
-            match std::fs::read_to_string(&file).map_err(anyhow::Error::from).and_then(|t| parse_skill(&t)) {
-                Ok(skill) => out.push(SkillSummary { stats: self.usage.stats(&skill.meta.name), meta: skill.meta }),
+            match std::fs::read_to_string(&file)
+                .map_err(anyhow::Error::from)
+                .and_then(|t| parse_skill(&t))
+            {
+                Ok(skill) => out.push(SkillSummary {
+                    stats: self.usage.stats(&skill.meta.name),
+                    meta: skill.meta,
+                }),
                 Err(e) => eprintln!("skipping invalid skill {}: {e}", file.display()),
             }
         }
@@ -98,7 +106,10 @@ impl SkillLibrary {
                 (hits > 0).then(|| (hits as f64 * s.stats.reliability(), s))
             })
             .collect();
-        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.meta.name.cmp(&b.1.meta.name)));
+        scored.sort_by(|a, b| {
+            b.0.total_cmp(&a.0)
+                .then_with(|| a.1.meta.name.cmp(&b.1.meta.name))
+        });
         Ok(scored.into_iter().take(limit).map(|(_, s)| s).collect())
     }
 
@@ -120,7 +131,12 @@ impl SkillLibrary {
     }
 
     /// Propose creating or replacing a skill. `content` is the full SKILL.md text.
-    pub async fn propose_upsert(&self, content: &str, rationale: &str, source: Option<String>) -> Result<Proposal> {
+    pub async fn propose_upsert(
+        &self,
+        content: &str,
+        rationale: &str,
+        source: Option<String>,
+    ) -> Result<Proposal> {
         let skill = parse_skill(content)?;
         let name = skill.meta.name.clone();
         validate_name(&name)?;
@@ -129,13 +145,22 @@ impl SkillLibrary {
             .propose(NewProposal {
                 title: format!("{} skill {name}", if exists { "Update" } else { "Add" }),
                 rationale: rationale.to_string(),
-                changes: vec![FileChange { path: format!("{name}/{SKILL_FILE}"), content: Some(content.to_string()), executable: false }],
+                changes: vec![FileChange {
+                    path: format!("{name}/{SKILL_FILE}"),
+                    content: Some(content.to_string()),
+                    executable: false,
+                }],
                 source,
             })
             .await
     }
 
-    pub async fn propose_delete(&self, name: &str, rationale: &str, source: Option<String>) -> Result<Proposal> {
+    pub async fn propose_delete(
+        &self,
+        name: &str,
+        rationale: &str,
+        source: Option<String>,
+    ) -> Result<Proposal> {
         validate_name(name)?;
         if !self.library.root().join(name).exists() {
             bail!("no skill named {name}");
@@ -144,7 +169,11 @@ impl SkillLibrary {
             .propose(NewProposal {
                 title: format!("Remove skill {name}"),
                 rationale: rationale.to_string(),
-                changes: vec![FileChange { path: name.to_string(), content: None, executable: false }],
+                changes: vec![FileChange {
+                    path: name.to_string(),
+                    content: None,
+                    executable: false,
+                }],
                 source,
             })
             .await
@@ -160,7 +189,7 @@ impl SkillLibrary {
             .filter(|s| {
                 let st = &s.stats;
                 let harmful = st.failures + st.negative >= 3 && st.reliability() < 0.5;
-                let unused = st.last_used.map_or(false, |t| now - t > unused_days * 86_400);
+                let unused = st.last_used.is_some_and(|t| now - t > unused_days * 86_400);
                 harmful || unused
             })
             .collect())
@@ -170,10 +199,14 @@ impl SkillLibrary {
 pub fn validate_name(name: &str) -> Result<()> {
     let ok = !name.is_empty()
         && name.len() <= 64
-        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         && !name.starts_with('-');
     if !ok {
-        bail!("skill name {name:?} must be lowercase letters, digits and '-', at most 64 characters");
+        bail!(
+            "skill name {name:?} must be lowercase letters, digits and '-', at most 64 characters"
+        );
     }
     Ok(())
 }

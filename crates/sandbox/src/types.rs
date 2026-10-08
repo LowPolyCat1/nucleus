@@ -106,7 +106,11 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { memory_bytes: Some(8 << 30), nano_cpus: None, pids: Some(4096) }
+        Self {
+            memory_bytes: Some(8 << 30),
+            nano_cpus: None,
+            pids: Some(4096),
+        }
     }
 }
 
@@ -134,7 +138,10 @@ impl ExecSpec {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self { cmd: cmd.into_iter().map(Into::into).collect(), ..Default::default() }
+        Self {
+            cmd: cmd.into_iter().map(Into::into).collect(),
+            ..Default::default()
+        }
     }
 }
 
@@ -157,7 +164,11 @@ impl ExecHandle {
         stdin: Option<Pin<Box<dyn AsyncWrite + Send>>>,
         exit: BoxFuture<'static, crate::Result<Option<i64>>>,
     ) -> Self {
-        Self { output, stdin, exit }
+        Self {
+            output,
+            stdin,
+            exit,
+        }
     }
 
     /// Split into output stream, stdin and the exit future.
