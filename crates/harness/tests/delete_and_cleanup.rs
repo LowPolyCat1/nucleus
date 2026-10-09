@@ -159,7 +159,19 @@ async fn cleanup_removes_orphans_only() {
 
     let report = harness.cleanup_orphans().await.unwrap();
     assert_eq!(report.containers, vec![lost.container.clone()]);
-    assert!(report.worktrees.contains(&lost.worktree));
+    // git reports canonical paths (/private/var on macOS for /var).
+    let canonical = |p: &std::path::Path| {
+        std::fs::canonicalize(p.parent().unwrap())
+            .unwrap()
+            .join(p.file_name().unwrap())
+    };
+    assert!(
+        report
+            .worktrees
+            .iter()
+            .any(|w| canonical(w) == canonical(&lost.worktree)),
+        "{report:?}"
+    );
     let mut branches = report.branches.clone();
     branches.sort();
     let mut expected = vec!["agent/ghost".to_string(), lost.branch.clone()];

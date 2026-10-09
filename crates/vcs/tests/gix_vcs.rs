@@ -56,7 +56,13 @@ async fn branches_worktrees_diff_and_merge() {
     // main is checked out in the main working copy: fast-forward there.
     let out = vcs.merge("main", "agent/c1", "merge").await.unwrap();
     assert!(matches!(out, MergeOutcome::FastForward { .. }));
-    assert_eq!(std::fs::read_to_string(dir.path().join("b.txt")).unwrap(), "new\n");
+    // The user's working copy follows their line ending settings (autocrlf on Windows).
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("b.txt"))
+            .unwrap()
+            .replace("\r\n", "\n"),
+        "new\n"
+    );
     assert!(
         vcs.unique_commits("agent/c1", &["main".into()])
             .await
