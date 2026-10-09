@@ -5,7 +5,7 @@ import { formatCost, relativeTime, shortId } from "../lib/format";
 import { useApp } from "../store";
 import { DeleteDialog } from "./DeleteDialog";
 import { NetworkView } from "./NetworkView";
-import { DiffView } from "./DiffView";
+import { StreamedDiff } from "./DiffView";
 import { StatusDot } from "./Sidebar";
 import { Badge, Button, ErrorBox, errorText, inputBase, inputClass, Spinner } from "./ui";
 import { Tab } from "./WorkspaceView";
@@ -237,13 +237,12 @@ function ChangesView(props: { conversation: Conversation }) {
   const [merging, setMerging] = createSignal(false);
   const data = createMemo(async () => {
     void state.repoVersion;
-    const [diff, unmerged, branches, merging] = await Promise.all([
-      backend.conversationDiff(props.conversation.id),
+    const [unmerged, branches, merging] = await Promise.all([
       backend.unmergedCommits(props.conversation.id),
       backend.branches(props.conversation.workspace_id),
       backend.mergeState(props.conversation.id),
     ]);
-    return { diff, unmerged, merging, targets: branches.filter((b) => b.kind === "local").map((b) => b.name) };
+    return { unmerged, merging, targets: branches.filter((b) => b.kind === "local").map((b) => b.name) };
   });
   const defaultTarget = (targets: string[]) => (targets.includes(props.conversation.base_branch) ? props.conversation.base_branch : (targets[0] ?? ""));
   const merge = async (fallback: string) => {
@@ -316,7 +315,11 @@ function ChangesView(props: { conversation: Conversation }) {
               </For>
             </ul>
           </Show>
-          <DiffView files={data().diff} emptyText="The agent has not changed anything yet" />
+          <StreamedDiff
+            load={(onFile) => backend.conversationDiffStream(props.conversation.id, onFile)}
+            streamKey={`${props.conversation.id}:${state.repoVersion}`}
+            emptyText="The agent has not changed anything yet"
+          />
         </Loading>
       </Errored>
     </div>

@@ -337,3 +337,41 @@ pub async fn abort_update(core: S<'_>, id: String) -> CmdResult<()> {
 pub async fn resolve_conflicts(core: S<'_>, id: String) -> CmdResult<TurnSummary> {
     core.harness().await?.resolve_conflicts(&id).await.map_err(err)
 }
+
+/// Send each file of a diff over `on_file` as soon as it is computed. Returns the file count.
+async fn stream_files(mut rx: nucleus_vcs::DiffStream, on_file: tauri::ipc::Channel<FileDiff>) -> CmdResult<usize> {
+    let mut n = 0;
+    while let Some(file) = rx.recv().await {
+        // A closed window drops the channel; returning drops `rx`, which stops the producer.
+        on_file.send(file.map_err(err)?).map_err(|e| e.to_string())?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+#[tauri::command]
+pub async fn diff_stream(
+    core: S<'_>,
+    workspace_id: String,
+    from: String,
+    to: String,
+    on_file: tauri::ipc::Channel<FileDiff>,
+) -> CmdResult<usize> {
+    let rx = core
+        .harness()
+        .await?
+        .diff_stream(&workspace_id, &from, &to)
+        .await
+        .map_err(err)?;
+    stream_files(rx, on_file).await
+}
+
+#[tauri::command]
+pub async fn conversation_diff_stream(
+    core: S<'_>,
+    id: String,
+    on_file: tauri::ipc::Channel<FileDiff>,
+) -> CmdResult<usize> {
+    let rx = core.harness().await?.conversation_diff_stream(&id).await.map_err(err)?;
+    stream_files(rx, on_file).await
+}

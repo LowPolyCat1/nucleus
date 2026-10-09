@@ -324,3 +324,19 @@ async fn egress_log_follows_the_network_policy() {
     assert!(log.entries.is_empty());
     assert!(f.harness.egress_log("missing").await.is_err());
 }
+
+#[tokio::test]
+async fn diffs_stream_file_by_file() {
+    let f = fixture(Engine::Docker).await;
+    let ws = f.harness.add_workspace(&f.repo, None).await.unwrap();
+    let conv = f.harness.create_conversation(&ws.id, "main", "t").await.unwrap();
+    f.harness.send_message(&conv.id, "edit").await.unwrap();
+    let mut rx = f.harness.conversation_diff_stream(&conv.id).await.unwrap();
+    let first = rx.recv().await.unwrap().unwrap();
+    assert_eq!(first.path, "notes.txt");
+    assert!(rx.recv().await.is_none());
+    let mut rx = f.harness.diff_stream(&ws.id, "main", &conv.branch).await.unwrap();
+    assert_eq!(rx.recv().await.unwrap().unwrap().path, "notes.txt");
+    assert!(f.harness.diff_stream(&ws.id, "main", "nope").await.is_err());
+    assert!(f.harness.conversation_diff_stream("missing").await.is_err());
+}

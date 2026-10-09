@@ -89,6 +89,8 @@ pub fn run() {
             commands::merge_state,
             commands::abort_update,
             commands::resolve_conflicts,
+            commands::diff_stream,
+            commands::conversation_diff_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running nucleus");

@@ -472,6 +472,22 @@ impl Harness {
         vcs.graph(&tips, limit).await
     }
 
+    /// Diff of two revisions, one file at a time.
+    pub async fn diff_stream(&self, workspace_id: &str, from: &str, to: &str) -> Result<nucleus_vcs::DiffStream> {
+        self.vcs_for(workspace_id).await?.diff_stream(from, to).await
+    }
+
+    /// The conversation's changes since its branch left the base, one file at a time.
+    pub async fn conversation_diff_stream(&self, conversation_id: &str) -> Result<nucleus_vcs::DiffStream> {
+        let conv = self.state.lock().await.conversation(conversation_id)?.clone();
+        let vcs = self.vcs_for(&conv.workspace_id).await?;
+        let base = vcs
+            .merge_base(&conv.base_branch, &conv.branch)
+            .await?
+            .ok_or_else(|| anyhow!("{} and {} share no history", conv.base_branch, conv.branch))?;
+        vcs.diff_stream(&base, &conv.branch).await
+    }
+
     pub async fn diff(&self, workspace_id: &str, from: &str, to: &str) -> Result<Vec<FileDiff>> {
         self.vcs_for(workspace_id).await?.diff(from, to).await
     }

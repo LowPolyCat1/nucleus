@@ -1,7 +1,7 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { FileDiff } from "../api/types";
 import { diffStats, parsePatch } from "../lib/diff";
-import { Badge, Empty } from "./ui";
+import { Badge, Empty, ErrorBox } from "./ui";
 
 export function DiffView(props: { files: FileDiff[]; emptyText?: string }) {
   const stats = createMemo(() => diffStats(props.files));
@@ -36,6 +36,11 @@ function FileBlock(props: { file: FileDiff; open: boolean }) {
         <span class="font-mono text-xs text-red-400">−{props.file.deletions}</span>
       </button>
       <Show when={open()}>
+        <Show when={props.file.truncated}>
+          <p class="px-3 py-1 text-xs text-amber-300" data-testid="truncated">
+            {props.file.patch ? "Diff truncated: the change is too large to show in full." : "File too large to diff."}
+          </p>
+        </Show>
         <Show when={!props.file.binary} fallback={<p class="px-3 py-2 text-xs text-zinc-500">Binary file not shown</p>}>
           <table class="w-full border-collapse font-mono text-xs">
             <tbody>
@@ -70,5 +75,70 @@ function FileBlock(props: { file: FileDiff; open: boolean }) {
         </Show>
       </Show>
     </section>
+  );
+}
+
+/**
+ * Loads a diff through a streaming backend call and renders files as they arrive. Restarts
+ * whenever `streamKey` changes; results of superseded streams are dropped.
+ */
+export function StreamedDiff(props: { load: (onFile: (f: FileDiff) => void) => Promise<number>; streamKey: unknown; emptyText?: string }) {
+  const [files, setFiles] = createSignal<FileDiff[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal<string | null>(null);
+  let generation = 0;
+  createEffect(
+    () => props.streamKey,
+    () => {
+      const mine = ++generation;
+      setFiles([]);
+      setError(null);
+      setLoading(true);
+      const pending: FileDiff[] = [];
+      let scheduled = false;
+      // Batch files arriving in the same tick into one update.
+      const flushPending = () => {
+        scheduled = false;
+        if (mine !== generation) return;
+        const batch = pending.splice(0);
+        setFiles((f) => [...f, ...batch]);
+      };
+      props
+        .load((f) => {
+          if (mine !== generation) return;
+          pending.push(f);
+          if (!scheduled) {
+            scheduled = true;
+            queueMicrotask(flushPending);
+          }
+        })
+        .then(
+          () => {
+            if (mine === generation) {
+              flushPending();
+              setLoading(false);
+            }
+          },
+          (e) => {
+            if (mine === generation) {
+              setError(typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
+              setLoading(false);
+            }
+          },
+        );
+    },
+  );
+  return (
+    <div data-testid="streamed-diff" data-loading={loading() ? "true" : "false"}>
+      <Show when={error()}>{(e) => <ErrorBox message={e()} />}</Show>
+      <Show when={loading()}>
+        <p class="mb-2 text-xs text-zinc-500" data-testid="diff-loading">
+          Loading diff… {files().length} {files().length === 1 ? "file" : "files"} so far
+        </p>
+      </Show>
+      <Show when={!loading() || files().length > 0}>
+        <DiffView files={files()} emptyText={props.emptyText} />
+      </Show>
+    </div>
   );
 }

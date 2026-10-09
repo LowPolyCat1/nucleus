@@ -1,7 +1,13 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Backend } from "./backend";
-import type { HarnessEvent } from "./types";
+import type { FileDiff, HarnessEvent } from "./types";
+
+function channel(onFile: (f: FileDiff) => void): Channel<FileDiff> {
+  const ch = new Channel<FileDiff>();
+  ch.onmessage = onFile;
+  return ch;
+}
 
 /** Event name the Rust side emits harness events on. */
 export const EVENT_NAME = "nucleus://event";
@@ -27,6 +33,7 @@ export function tauriBackend(): Backend {
     push: (workspaceId, branch, remote) => call("push", { workspaceId, branch, remote }),
     graph: (workspaceId, limit) => call("graph", { workspaceId, limit }),
     diff: (workspaceId, from, to) => call("diff", { workspaceId, from, to }),
+    diffStream: (workspaceId, from, to, onFile) => call("diff_stream", { workspaceId, from, to, onFile: channel(onFile) }),
     createConversation: (workspaceId, baseBranch, title) => call("create_conversation", { workspaceId, baseBranch, title }),
     renameConversation: (id, title) => call("rename_conversation", { id, title }),
     deleteConversation: (id, mode) => call("delete_conversation", { id, mode }),
@@ -36,6 +43,7 @@ export function tauriBackend(): Backend {
     egressLog: (id) => call("egress_log", { id }),
     transcript: (id) => call("transcript", { id }),
     conversationDiff: (id) => call("conversation_diff", { id }),
+    conversationDiffStream: (id, onFile) => call("conversation_diff_stream", { id, onFile: channel(onFile) }),
     unmergedCommits: (id) => call("unmerged_commits", { id }),
     mergeConversation: (id, into) => call("merge_conversation", { id, into }),
     updateFromBase: (id) => call("update_from_base", { id }),

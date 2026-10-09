@@ -24,6 +24,9 @@ use async_trait::async_trait;
 
 pub type Result<T, E = anyhow::Error> = std::result::Result<T, E>;
 
+/// Files of a diff as they are computed.
+pub type DiffStream = tokio::sync::mpsc::Receiver<Result<FileDiff>>;
+
 /// Generic version control operations. Branch names are short names (`main`, `agent/123`,
 /// `origin/main`); revisions accept anything `git rev-parse` would.
 #[async_trait]
@@ -56,7 +59,18 @@ pub trait Vcs: Send + Sync {
     async fn merge_base(&self, a: &str, b: &str) -> Result<Option<String>>;
 
     /// File level diff between the trees of two revisions, including unified hunks.
-    async fn diff(&self, from: &str, to: &str) -> Result<Vec<FileDiff>>;
+    async fn diff(&self, from: &str, to: &str) -> Result<Vec<FileDiff>> {
+        let mut rx = self.diff_stream(from, to).await?;
+        let mut out = Vec::new();
+        while let Some(f) = rx.recv().await {
+            out.push(f?);
+        }
+        Ok(out)
+    }
+
+    /// Like [`Vcs::diff`], producing files one at a time as they are computed. Dropping the
+    /// receiver stops the work.
+    async fn diff_stream(&self, from: &str, to: &str) -> Result<DiffStream>;
 
     /// Add a worktree at `path` with `branch` checked out.
     async fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;

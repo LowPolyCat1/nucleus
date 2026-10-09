@@ -249,3 +249,46 @@ async fn rebase_and_merge_in_worktree() {
     vcs.remove_worktree(&ff).await.unwrap();
     vcs.remove_worktree(&wt).await.unwrap();
 }
+
+#[tokio::test]
+async fn streamed_diffs() {
+    let (dir, vcs) = setup().await;
+    for i in 0..30 {
+        std::fs::write(dir.path().join(format!("f{i:02}.txt")), format!("{i}\n")).unwrap();
+    }
+    std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+    std::fs::write(dir.path().join("sub/inner.txt"), "x\n").unwrap();
+    let big: String = (0..300_000).map(|i| format!("line {i}\n")).collect();
+    std::fs::write(dir.path().join("big.txt"), &big).unwrap();
+    commit_file(dir.path(), "a.txt", "one\nTWO\n", "many files").await;
+
+    let mut rx = vcs.diff_stream("HEAD~1", "HEAD").await.unwrap();
+    let mut paths = Vec::new();
+    while let Some(f) = rx.recv().await {
+        let f = f.unwrap();
+        if f.path == "big.txt" {
+            assert!(f.truncated);
+            assert!(f.patch.len() <= 1024 * 1024);
+            assert_eq!(f.additions, 300_000);
+        } else {
+            assert!(!f.truncated);
+        }
+        paths.push(f.path);
+    }
+    assert_eq!(paths.len(), 33);
+    let mut sorted = paths.clone();
+    sorted.sort();
+    assert_eq!(paths, sorted, "streamed in path order");
+    assert!(paths.contains(&"sub/inner.txt".to_string()));
+    // The collecting form returns the same files.
+    assert_eq!(vcs.diff("HEAD~1", "HEAD").await.unwrap().len(), 33);
+
+    // Dropping the receiver early stops the producer without errors.
+    let mut rx = vcs.diff_stream("HEAD~1", "HEAD").await.unwrap();
+    rx.recv().await.unwrap().unwrap();
+    drop(rx);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    assert!(vcs.diff_stream("HEAD", "no-such-rev").await.is_err());
+    assert!(vcs.diff("HEAD", "HEAD").await.unwrap().is_empty());
+}

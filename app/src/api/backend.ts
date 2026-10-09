@@ -57,6 +57,8 @@ export interface Backend {
   push(workspaceId: string, branch: string, remote: string): Promise<string>;
   graph(workspaceId: string, limit: number): Promise<CommitInfo[]>;
   diff(workspaceId: string, from: string, to: string): Promise<FileDiff[]>;
+  /** Like `diff`, delivering files as they are computed; resolves to the file count. */
+  diffStream(workspaceId: string, from: string, to: string, onFile: (f: FileDiff) => void): Promise<number>;
 
   createConversation(workspaceId: string, baseBranch: string, title: string): Promise<Conversation>;
   renameConversation(id: string, title: string): Promise<void>;
@@ -69,6 +71,7 @@ export interface Backend {
   egressLog(id: string): Promise<EgressLog>;
   transcript(id: string): Promise<TranscriptEntry[]>;
   conversationDiff(id: string): Promise<FileDiff[]>;
+  conversationDiffStream(id: string, onFile: (f: FileDiff) => void): Promise<number>;
   unmergedCommits(id: string): Promise<CommitInfo[]>;
   mergeConversation(id: string, into: string): Promise<MergeOutcome>;
   /** Merge the base branch into the agent branch; conflicts stay for the agent to resolve. */

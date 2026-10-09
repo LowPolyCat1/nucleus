@@ -627,6 +627,32 @@ export class MockBackend implements Backend {
     return this.guard("diff", [wid, from, to], () => this.diffCommits(this.repo(wid), from, to));
   }
 
+  diffStream(wid: string, from: string, to: string, onFile: (f: FileDiff) => void) {
+    return this.guard("diffStream", [wid, from, to], async () => {
+      const files = this.diffCommits(this.repo(wid), from, to);
+      for (const f of files) {
+        await this.sleep();
+        onFile(f);
+      }
+      return files.length;
+    });
+  }
+
+  conversationDiffStream(cid: string, onFile: (f: FileDiff) => void) {
+    return this.guard("conversationDiffStream", [cid], async () => {
+      const c = this.conv(cid);
+      const repo = this.repo(c.workspace_id);
+      const base = this.mergeBase(repo, this.tip(repo, c.base_branch), this.tip(repo, c.branch));
+      if (!base) throw `${c.base_branch} and ${c.branch} share no history`;
+      const files = this.diffCommits(repo, base, c.branch);
+      for (const f of files) {
+        await this.sleep();
+        onFile(f);
+      }
+      return files.length;
+    });
+  }
+
   createConversation(wid: string, base: string, title: string) {
     return this.guard("createConversation", [wid, base, title], async () => {
       const ws = this.workspaces.find((w) => w.id === wid);

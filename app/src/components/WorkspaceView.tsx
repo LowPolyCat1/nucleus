@@ -3,7 +3,7 @@ import type { NetworkPolicy, Workspace } from "../api/types";
 import { describePolicy } from "../lib/network";
 import { useApp } from "../store";
 import { BranchTree } from "./BranchTree";
-import { DiffView } from "./DiffView";
+import { StreamedDiff } from "./DiffView";
 import { NetworkEditor } from "./NetworkEditor";
 import { Badge, Button, ErrorBox, errorText, inputBase, inputClass, Modal, Spinner } from "./ui";
 
@@ -105,11 +105,7 @@ function Branches(props: { workspaceId: string }) {
     const [branches, commits] = await Promise.all([backend.branches(props.workspaceId), backend.graph(props.workspaceId, 300)]);
     return { branches, commits };
   });
-  const diff = createMemo(async () => {
-    void state.repoVersion;
-    const c = compare();
-    return c ? backend.diff(props.workspaceId, c[0], c[1]) : null;
-  });
+
   const pick = (name: string) => {
     if (!from() || (from() && to())) {
       setFrom(name);
@@ -158,11 +154,15 @@ function Branches(props: { workspaceId: string }) {
         </div>
         <Show when={compare()}>
           <div class="mb-4">
-            <Errored fallback={(err) => <ErrorBox message={errorText(err())} />}>
-              <Loading fallback={<Spinner label="Computing diff…" />}>
-                <Show when={diff()}>{(d) => <DiffView files={d()} emptyText="The branches have the same content" />}</Show>
-              </Loading>
-            </Errored>
+            <Show when={compare()}>
+              {(c) => (
+                <StreamedDiff
+                  load={(onFile) => backend.diffStream(props.workspaceId, c()[0], c()[1], onFile)}
+                  streamKey={`${c()[0]}..${c()[1]}:${state.repoVersion}`}
+                  emptyText="The branches have the same content"
+                />
+              )}
+            </Show>
           </div>
         </Show>
         <BranchTree commits={data().commits} branches={data().branches} onSelectBranch={pick} />

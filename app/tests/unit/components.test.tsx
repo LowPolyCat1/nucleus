@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@solidjs/testing-library";
+import { fireEvent, render, waitFor, within } from "@solidjs/testing-library";
 import { flush } from "solid-js";
 import { expect, test } from "vitest";
 import type { FileDiff } from "../../src/api/types";
@@ -58,4 +58,60 @@ test("BranchTree rows, badges and selection", () => {
 
 test("BranchTree empty", () => {
   expect(render(() => <BranchTree commits={[]} branches={[]} />).getByText("No commits")).toBeInTheDocument();
+});
+
+import { createSignal } from "solid-js";
+import { StreamedDiff } from "../../src/components/DiffView";
+
+function controlledLoad() {
+  let emit: (f: FileDiff) => void = () => {};
+  let done: (n: number) => void = () => {};
+  let fail: (e: unknown) => void = () => {};
+  const load = (onFile: (f: FileDiff) => void) =>
+    new Promise<number>((res, rej) => {
+      emit = onFile;
+      done = res;
+      fail = rej;
+    });
+  return { load, emit: (f: FileDiff) => emit(f), done: (n: number) => done(n), fail: (e: unknown) => fail(e) };
+}
+
+test("StreamedDiff renders files as they arrive", async () => {
+  const c = controlledLoad();
+  const r = render(() => <StreamedDiff load={c.load} streamKey="k" />);
+  expect(r.getByTestId("diff-loading")).toHaveTextContent("0 files so far");
+  c.emit(file({ path: "one.txt" }));
+  expect(await r.findByTestId("diff-file-one.txt")).toBeInTheDocument();
+  expect(r.getByTestId("diff-loading")).toHaveTextContent("1 file so far");
+  c.emit(file({ path: "two.txt" }));
+  c.done(2);
+  await waitFor(() => expect(r.getByTestId("streamed-diff")).toHaveAttribute("data-loading", "false"));
+  expect(r.getByTestId("diff-file-two.txt")).toBeInTheDocument();
+  expect(r.queryByTestId("diff-loading")).not.toBeInTheDocument();
+});
+
+test("StreamedDiff drops superseded streams and shows errors", async () => {
+  const first = controlledLoad();
+  const second = controlledLoad();
+  const [key, setKey] = createSignal("a");
+  const r = render(() => <StreamedDiff load={(f) => (key() === "a" ? first.load(f) : second.load(f))} streamKey={key()} emptyText="Same" />);
+  first.emit(file({ path: "old.txt" }));
+  await r.findByTestId("diff-file-old.txt");
+  setKey("b");
+  await waitFor(() => expect(r.queryByTestId("diff-file-old.txt")).not.toBeInTheDocument());
+  first.emit(file({ path: "late.txt" }));
+  first.done(2);
+  second.done(0);
+  expect(await r.findByText("Same")).toBeInTheDocument();
+  expect(r.queryByTestId("diff-file-late.txt")).not.toBeInTheDocument();
+  setKey("a");
+  flush(); // let the effect start the new stream before failing it
+  first.fail("diff failed: bad object");
+  expect(await r.findByText("diff failed: bad object")).toBeInTheDocument();
+});
+
+test("truncated files say so", () => {
+  const r = render(() => <DiffView files={[file({ path: "big.txt", truncated: true }), file({ path: "huge.bin", truncated: true, patch: "" })]} />);
+  expect(within(r.getByTestId("diff-file-big.txt")).getByTestId("truncated")).toHaveTextContent("Diff truncated");
+  expect(within(r.getByTestId("diff-file-huge.bin")).getByTestId("truncated")).toHaveTextContent("too large to diff");
 });

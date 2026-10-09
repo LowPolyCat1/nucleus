@@ -76,6 +76,8 @@ export interface FileDiff {
   old_path: string | null;
   status: FileStatus;
   binary: boolean;
+  /** The patch was cut short or skipped because the file is very large. */
+  truncated?: boolean;
   additions: number;
   deletions: number;
   patch: string;

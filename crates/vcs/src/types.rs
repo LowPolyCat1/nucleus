@@ -55,6 +55,9 @@ pub struct FileDiff {
     pub old_path: Option<String>,
     pub status: FileStatus,
     pub binary: bool,
+    /// The patch was cut short or skipped because the file is very large.
+    #[serde(default)]
+    pub truncated: bool,
     pub additions: usize,
     pub deletions: usize,
     /// Unified diff hunks without the `---`/`+++` header. Empty for binary files.

@@ -260,92 +260,107 @@ impl Vcs for GixVcs {
         .await
     }
 
-    async fn diff(&self, from: &str, to: &str) -> Result<Vec<FileDiff>> {
+    async fn diff_stream(&self, from: &str, to: &str) -> Result<crate::DiffStream> {
         let (from, to) = (from.to_string(), to.to_string());
-        self.blocking(move |repo| {
-            let tree_of = |rev: &str| -> Result<gix::Tree<'_>> {
-                let id = resolve_id(&repo, rev)?;
-                repo.find_commit(id)
-                    .map_err(|e| anyhow!("{e}"))?
-                    .tree()
-                    .map_err(|e| anyhow!("{e}"))
-            };
-            let (old, new) = (tree_of(&from)?, tree_of(&to)?);
-            let changes = repo
-                .diff_tree_to_tree(&old, &new, None)
-                .map_err(|e| anyhow!("diff failed: {e}"))?;
-            use gix::object::tree::diff::ChangeDetached as C;
-            let mut out = Vec::new();
-            for change in changes {
-                let (path, old_path, status, old_id, new_id, mode) = match change {
-                    C::Addition {
-                        location,
-                        id,
-                        entry_mode,
-                        ..
-                    } => (
-                        location,
-                        None,
-                        FileStatus::Added,
-                        gix::ObjectId::null(id.kind()),
-                        id,
-                        entry_mode,
-                    ),
-                    C::Deletion {
-                        location,
-                        id,
-                        entry_mode,
-                        ..
-                    } => (
-                        location,
-                        None,
-                        FileStatus::Deleted,
-                        id,
-                        gix::ObjectId::null(id.kind()),
-                        entry_mode,
-                    ),
-                    C::Modification {
-                        location,
-                        previous_id,
-                        id,
-                        entry_mode,
-                        ..
-                    } => (location, None, FileStatus::Modified, previous_id, id, entry_mode),
-                    C::Rewrite {
-                        source_location,
-                        location,
-                        source_id,
-                        id,
-                        entry_mode,
-                        copy,
-                        ..
-                    } => (
-                        location,
-                        Some(source_location.to_string()),
-                        if copy { FileStatus::Copied } else { FileStatus::Renamed },
-                        source_id,
-                        id,
-                        entry_mode,
-                    ),
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        let repo = self.repo.clone();
+        // Resolve both sides first so bad revisions fail the call itself.
+        self.resolve(&from).await?;
+        self.resolve(&to).await?;
+        tokio::task::spawn_blocking(move || {
+            let repo = repo.to_thread_local();
+            let run = || -> Result<()> {
+                let tree_of = |rev: &str| -> Result<gix::Tree<'_>> {
+                    let id = resolve_id(&repo, rev)?;
+                    repo.find_commit(id)
+                        .map_err(|e| anyhow!("{e}"))?
+                        .tree()
+                        .map_err(|e| anyhow!("{e}"))
                 };
-                if mode.is_tree() {
-                    continue;
+                let (old, new) = (tree_of(&from)?, tree_of(&to)?);
+                let mut changes = repo
+                    .diff_tree_to_tree(&old, &new, None)
+                    .map_err(|e| anyhow!("diff failed: {e}"))?;
+                use gix::object::tree::diff::ChangeDetached as C;
+                changes.sort_by(|a, b| a.location().cmp(b.location()));
+                for change in changes {
+                    let (path, old_path, status, old_id, new_id, mode) = match change {
+                        C::Addition {
+                            location,
+                            id,
+                            entry_mode,
+                            ..
+                        } => (
+                            location,
+                            None,
+                            FileStatus::Added,
+                            gix::ObjectId::null(id.kind()),
+                            id,
+                            entry_mode,
+                        ),
+                        C::Deletion {
+                            location,
+                            id,
+                            entry_mode,
+                            ..
+                        } => (
+                            location,
+                            None,
+                            FileStatus::Deleted,
+                            id,
+                            gix::ObjectId::null(id.kind()),
+                            entry_mode,
+                        ),
+                        C::Modification {
+                            location,
+                            previous_id,
+                            id,
+                            entry_mode,
+                            ..
+                        } => (location, None, FileStatus::Modified, previous_id, id, entry_mode),
+                        C::Rewrite {
+                            source_location,
+                            location,
+                            source_id,
+                            id,
+                            entry_mode,
+                            copy,
+                            ..
+                        } => (
+                            location,
+                            Some(source_location.to_string()),
+                            if copy { FileStatus::Copied } else { FileStatus::Renamed },
+                            source_id,
+                            id,
+                            entry_mode,
+                        ),
+                    };
+                    if mode.is_tree() {
+                        continue;
+                    }
+                    let r = render(&read_blob(&repo, old_id)?, &read_blob(&repo, new_id)?);
+                    let file = FileDiff {
+                        path: path.to_string(),
+                        old_path,
+                        status,
+                        binary: r.binary,
+                        truncated: r.truncated,
+                        additions: r.additions,
+                        deletions: r.deletions,
+                        patch: r.patch,
+                    };
+                    if tx.blocking_send(Ok(file)).is_err() {
+                        // The receiver is gone: nobody wants the rest.
+                        return Ok(());
+                    }
                 }
-                let r = render(&read_blob(&repo, old_id)?, &read_blob(&repo, new_id)?);
-                out.push(FileDiff {
-                    path: path.to_string(),
-                    old_path,
-                    status,
-                    binary: r.binary,
-                    additions: r.additions,
-                    deletions: r.deletions,
-                    patch: r.patch,
-                });
+                Ok(())
+            };
+            if let Err(e) = run() {
+                let _ = tx.blocking_send(Err(e));
             }
-            out.sort_by(|a, b| a.path.cmp(&b.path));
-            Ok(out)
-        })
-        .await
+        });
+        Ok(rx)
     }
 
     async fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
