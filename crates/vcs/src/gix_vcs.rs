@@ -9,7 +9,8 @@ use crate::cli::{git, git_output, git_with_identity};
 use crate::diff::render;
 use crate::strategy::BranchStrategy;
 use crate::{
-    BranchInfo, CommitInfo, FileDiff, FileStatus, MergeOutcome, NamespacedStrategy, Result, Vcs, WorktreeInfo,
+    BranchInfo, CommitInfo, FileDiff, FileStatus, MergeOutcome, NamespacedStrategy, RebaseOutcome, Result, Vcs,
+    WorktreeInfo,
 };
 
 /// [`Vcs`] implementation backed by gix, with git CLI fallback for worktrees and merges.
@@ -472,6 +473,127 @@ impl Vcs for GixVcs {
         git_with_identity(&self.workdir, &["update-ref", "-m", message, &full, &commit, &into_id]).await?;
         Ok(MergeOutcome::Merged { commit })
     }
+
+    async fn remotes(&self) -> Result<Vec<String>> {
+        Ok(git(&self.workdir, &["remote"])
+            .await?
+            .lines()
+            .map(str::to_string)
+            .filter(|r| !r.is_empty())
+            .collect())
+    }
+
+    async fn fetch(&self, remote: Option<&str>) -> Result<()> {
+        let args: Vec<&str> = match remote {
+            Some(r) => vec!["fetch", "--prune", "--", r],
+            None => vec!["fetch", "--prune", "--all"],
+        };
+        git(&self.workdir, &args).await.map(drop)
+    }
+
+    async fn push(&self, branch: &str, remote: &str) -> Result<String> {
+        if !self.remotes().await?.iter().any(|r| r == remote) {
+            bail!("no remote named {remote}");
+        }
+        let spec = format!("refs/heads/{branch}:refs/heads/{branch}");
+        let out = git_output(&self.workdir, &["push", "--porcelain", "--set-upstream", remote, &spec]).await?;
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        if !out.status.success() {
+            bail!("push to {remote} failed: {}", text.trim());
+        }
+        Ok(text.trim().to_string())
+    }
+
+    async fn rebase(&self, worktree: &Path, onto: &str) -> Result<RebaseOutcome> {
+        let onto_id = self.resolve(onto).await?;
+        let head = git(worktree, &["rev-parse", "HEAD"]).await?;
+        if git_output(worktree, &["merge-base", "--is-ancestor", &onto_id, &head])
+            .await?
+            .status
+            .success()
+        {
+            return Ok(RebaseOutcome::UpToDate);
+        }
+        let mut args = crate::cli::identity_args(worktree).await;
+        args.extend(["rebase", "--quiet", &onto_id].map(String::from));
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = git_output(worktree, &refs).await?;
+        if !out.status.success() {
+            let paths = unmerged_paths(worktree).await;
+            git_output(worktree, &["rebase", "--abort"]).await.ok();
+            if paths.is_empty() {
+                bail!("rebase failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+            }
+            return Ok(RebaseOutcome::Conflicts { paths });
+        }
+        Ok(RebaseOutcome::Rebased {
+            commit: git(worktree, &["rev-parse", "HEAD"]).await?,
+        })
+    }
+
+    async fn merge_in_worktree(&self, worktree: &Path, from: &str, message: &str) -> Result<MergeOutcome> {
+        if self.merge_conflicts(worktree).await?.is_some() {
+            bail!("a merge is already in progress; resolve or abort it first");
+        }
+        let from_id = self.resolve(from).await?;
+        let head = git(worktree, &["rev-parse", "HEAD"]).await?;
+        if git_output(worktree, &["merge-base", "--is-ancestor", &from_id, &head])
+            .await?
+            .status
+            .success()
+        {
+            return Ok(MergeOutcome::UpToDate);
+        }
+        let fast_forward = git_output(worktree, &["merge-base", "--is-ancestor", &head, &from_id])
+            .await?
+            .status
+            .success();
+        let mut args = crate::cli::identity_args(worktree).await;
+        args.extend(["merge", "--no-edit", "-m", message, &from_id].map(String::from));
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = git_output(worktree, &refs).await?;
+        if !out.status.success() {
+            let paths = unmerged_paths(worktree).await;
+            if paths.is_empty() {
+                git_output(worktree, &["merge", "--abort"]).await.ok();
+                bail!("merge failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+            }
+            return Ok(MergeOutcome::Conflicts { paths });
+        }
+        let commit = git(worktree, &["rev-parse", "HEAD"]).await?;
+        Ok(if fast_forward {
+            MergeOutcome::FastForward { commit }
+        } else {
+            MergeOutcome::Merged { commit }
+        })
+    }
+
+    async fn merge_conflicts(&self, worktree: &Path) -> Result<Option<Vec<String>>> {
+        let merging = git_output(worktree, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+            .await?
+            .status
+            .success();
+        if !merging {
+            return Ok(None);
+        }
+        Ok(Some(unmerged_paths(worktree).await))
+    }
+
+    async fn abort_merge(&self, worktree: &Path) -> Result<()> {
+        git(worktree, &["merge", "--abort"]).await.map(drop)
+    }
+}
+
+/// Paths git reports as unmerged in `dir`.
+async fn unmerged_paths(dir: &Path) -> Vec<String> {
+    git(dir, &["diff", "--name-only", "--diff-filter=U"])
+        .await
+        .map(|o| o.lines().map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 fn parse_worktree_list(out: &str) -> Vec<WorktreeInfo> {

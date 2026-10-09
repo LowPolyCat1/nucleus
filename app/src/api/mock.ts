@@ -17,6 +17,7 @@ import type {
   LogLevel,
   LibraryKind,
   MergeOutcome,
+  RebaseOutcome,
   NetworkPolicy,
   Proposal,
   Settings,
@@ -190,11 +191,17 @@ export class MockBackend implements Backend {
     templates: { files: {}, history: [], pending: [] },
   };
   private running = new Map<string, { cancelled: boolean }>();
+  private resolving = new Set<string>();
   private builtTemplates = new Set<string>();
   logs: LogEntry[] = [];
   skillStats = new Map<string, SkillStats>();
   private buildLogs = new Map<string, string>();
   private egress = new Map<string, EgressEntry[]>();
+  /** Updates from the base with unresolved conflicts, per conversation. */
+  private merging = new Map<string, { paths: string[]; theirs: string }>();
+  /** Commits waiting on the simulated remote until the next fetch: [workspace, branch, file, content]. */
+  private remoteQueue: [string, string, string, string][] = [];
+  private remoteNames = new Map<string, string[]>();
   /** Every call, for assertions: `[method, args]`. */
   calls: [string, unknown[]][] = [];
 
@@ -218,6 +225,11 @@ export class MockBackend implements Backend {
 
   emit(event: HarnessEvent) {
     for (const l of this.listeners) l(event);
+  }
+
+  /** Queue a commit someone else pushed to `origin/<branch>`; it arrives on the next fetch. */
+  queueRemoteCommit(workspaceId: string, branch: string, file: string, content: string) {
+    this.remoteQueue.push([workspaceId, branch, file, content]);
   }
 
   /** Add a commit to a workspace branch as if the user committed outside the app. */
@@ -262,6 +274,7 @@ export class MockBackend implements Backend {
     const main = this.tip(repo, "main");
     this.commit(repo, "main", { ...repo.commits.get(main)!.files, "src/lib.rs": "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n" }, "Add add()", [main]);
     repo.branches.set("origin/main", this.tip(repo, "main"));
+    this.remoteNames.set(ws.id, ["origin"]);
     this.commit(repo, "local/feature", { ...repo.commits.get(this.tip(repo, "main"))!.files, "docs/feature.md": "# Feature\n" }, "Draft feature docs", [this.tip(repo, "main")]);
     const conv = this.createConversationSync(ws.id, "main", "Add tests for add()");
     const crepo = this.repo(ws.id);
@@ -422,6 +435,21 @@ export class MockBackend implements Backend {
       .filter((x) => !hidden.has(x))
       .map((x) => strip(repo.commits.get(x)!))
       .sort((a, b) => b.time - a.time);
+  }
+
+  /** Three-way merge of file maps; returns merged files and conflicting paths. */
+  private threeWay(base: Record<string, string>, ours: Record<string, string>, theirs: Record<string, string>) {
+    const merged: Record<string, string> = { ...ours };
+    const conflicts: string[] = [];
+    for (const p of new Set([...Object.keys(ours), ...Object.keys(theirs)])) {
+      const oursChanged = ours[p] !== base[p];
+      const theirsChanged = theirs[p] !== base[p];
+      if (theirsChanged && !oursChanged) {
+        if (theirs[p] === undefined) delete merged[p];
+        else merged[p] = theirs[p];
+      } else if (oursChanged && theirsChanged && ours[p] !== theirs[p]) conflicts.push(p);
+    }
+    return { merged, conflicts: conflicts.sort() };
   }
 
   private mergeSync(cid: string, into: string): MergeOutcome {
@@ -706,7 +734,18 @@ export class MockBackend implements Backend {
       this.log(isError ? "warn" : "info", `turn finished conversation=${cid} is_error=${isError}`);
       if (!this.conversations.some((x) => x.id === cid)) throw "conversation was deleted";
       const repo = this.repo(c.workspace_id);
-      if (!isError) {
+      const pendingMerge = this.merging.get(cid);
+      if (!isError && pendingMerge && !this.resolving.has(cid)) {
+        this.emit({ type: "agent", conversation_id: cid, event: { type: "error", message: `Conflict markers remain in ${pendingMerge.paths.join(", ")}; nothing was committed. Ask the agent again or abort the update.` } });
+      } else if (!isError && pendingMerge) {
+        const ours = this.tip(repo, c.branch);
+        const base = this.mergeBase(repo, ours, pendingMerge.theirs);
+        const { merged } = this.threeWay(base ? repo.commits.get(base)!.files : {}, repo.commits.get(ours)!.files, repo.commits.get(pendingMerge.theirs)!.files);
+        for (const p of pendingMerge.paths) merged[p] = "resolved\n";
+        const commit = this.commit(repo, c.branch, merged, `Agent turn: resolve conflicts`, [ours, pendingMerge.theirs]);
+        this.merging.delete(cid);
+        this.emit({ type: "committed", conversation_id: cid, commit });
+      } else if (!isError) {
         const parent = this.tip(repo, c.branch);
         const files = { ...repo.commits.get(parent)!.files };
         files["notes.md"] = (files["notes.md"] ?? "") + `- ${prompt}\n`;
@@ -753,6 +792,123 @@ export class MockBackend implements Backend {
       if (ws.network.mode === "full") return { mode: "open", allowed: [], entries: [] };
       const allowed = [...required, ...(ws.network.mode === "allowlist" ? ws.network.hosts : [])].sort();
       return { mode: "proxied", allowed, entries: clone(this.egress.get(cid) ?? []) };
+    });
+  }
+
+  remotes(wid: string) {
+    return this.guard("remotes", [wid], () => {
+      this.repo(wid);
+      return [...(this.remoteNames.get(wid) ?? [])];
+    });
+  }
+
+  fetch(wid: string, remote: string | null) {
+    return this.guard("fetch", [wid, remote], () => {
+      const repo = this.repo(wid);
+      const names = this.remoteNames.get(wid) ?? [];
+      if (remote !== null && !names.includes(remote)) throw `fatal: '${remote}' does not appear to be a git repository`;
+      for (const [w, branch, file, content] of this.remoteQueue.filter((q) => q[0] === wid)) {
+        const name = `origin/${branch}`;
+        const parent = repo.branches.get(name) ?? this.tip(repo, branch);
+        this.commit(repo, name, { ...repo.commits.get(parent)!.files, [file]: content }, `Remote: edit ${file}`, [parent]);
+        void w;
+      }
+      this.remoteQueue = this.remoteQueue.filter((q) => q[0] !== wid);
+      this.log("info", `fetched workspace=${wid}`);
+    });
+  }
+
+  push(wid: string, branch: string, remote: string) {
+    return this.guard("push", [wid, branch, remote], () => {
+      if (branch.startsWith("agent/")) throw "agent branches are not pushed; merge or keep a copy under local/ first";
+      if (!(this.remoteNames.get(wid) ?? []).includes(remote)) throw `no remote named ${remote}`;
+      const repo = this.repo(wid);
+      const tip = this.tip(repo, branch);
+      const upstream = repo.branches.get(`origin/${branch}`);
+      if (upstream && !this.ancestors(repo, tip).has(upstream)) throw `push to origin failed: ! [rejected] ${branch} -> ${branch} (non-fast-forward)`;
+      repo.branches.set(`origin/${branch}`, tip);
+      return `To origin\n*\trefs/heads/${branch}:refs/heads/${branch}\t[new branch]\nDone`;
+    });
+  }
+
+  updateFromBase(cid: string) {
+    return this.guard("updateFromBase", [cid], (): MergeOutcome => {
+      if (this.running.has(cid)) throw "wait for the running turn to finish";
+      if (this.merging.has(cid)) throw "a merge is already in progress; resolve or abort it first";
+      const c = this.conv(cid);
+      const repo = this.repo(c.workspace_id);
+      const ours = this.tip(repo, c.branch);
+      const theirs = this.tip(repo, c.base_branch);
+      if (this.ancestors(repo, ours).has(theirs)) return { kind: "up_to_date" };
+      if (this.ancestors(repo, theirs).has(ours)) {
+        repo.branches.set(c.branch, theirs);
+        this.emit({ type: "committed", conversation_id: cid, commit: theirs });
+        return { kind: "fast_forward", commit: theirs };
+      }
+      const base = this.mergeBase(repo, ours, theirs);
+      const { merged, conflicts } = this.threeWay(base ? repo.commits.get(base)!.files : {}, repo.commits.get(ours)!.files, repo.commits.get(theirs)!.files);
+      if (conflicts.length) {
+        this.merging.set(cid, { paths: conflicts, theirs });
+        return { kind: "conflicts", paths: conflicts };
+      }
+      const commit = this.commit(repo, c.branch, merged, `Update from ${c.base_branch}`, [ours, theirs]);
+      this.emit({ type: "committed", conversation_id: cid, commit });
+      return { kind: "merged", commit };
+    });
+  }
+
+  rebaseConversation(cid: string) {
+    return this.guard("rebaseConversation", [cid], (): RebaseOutcome => {
+      if (this.running.has(cid)) throw "wait for the running turn to finish";
+      const c = this.conv(cid);
+      if (this.merging.has(cid)) throw `finish or abort the update from ${c.base_branch} first`;
+      const repo = this.repo(c.workspace_id);
+      const tip = this.tip(repo, c.branch);
+      const onto = this.tip(repo, c.base_branch);
+      if (this.ancestors(repo, tip).has(onto)) return { kind: "up_to_date" };
+      const baseAnc = this.ancestors(repo, onto);
+      const own = [...this.ancestors(repo, tip)].filter((x) => !baseAnc.has(x)).map((x) => repo.commits.get(x)!).sort((a, b) => a.time - b.time);
+      let files = { ...repo.commits.get(onto)!.files };
+      const replay: [string, Record<string, string>][] = [];
+      for (const commit of own) {
+        const parent = commit.parents[0] ? repo.commits.get(commit.parents[0])!.files : {};
+        const { merged, conflicts } = this.threeWay(parent, files, commit.files);
+        if (conflicts.length) return { kind: "conflicts", paths: conflicts };
+        files = merged;
+        replay.push([commit.message, { ...merged }]);
+      }
+      let parent = onto;
+      for (const [message, f] of replay) parent = this.commit(repo, c.branch, f, message, [parent]);
+      repo.branches.set(c.branch, parent);
+      this.emit({ type: "committed", conversation_id: cid, commit: parent });
+      return { kind: "rebased", commit: parent };
+    });
+  }
+
+  mergeState(cid: string) {
+    return this.guard("mergeState", [cid], () => {
+      this.conv(cid);
+      return this.merging.get(cid)?.paths.slice() ?? null;
+    });
+  }
+
+  abortUpdate(cid: string) {
+    return this.guard("abortUpdate", [cid], () => {
+      if (!this.merging.delete(cid)) throw "no update in progress";
+    });
+  }
+
+  resolveConflicts(cid: string) {
+    return this.guard("resolveConflicts", [cid], async () => {
+      const state = this.merging.get(cid);
+      if (!state) throw "no update in progress";
+      const prompt = `${this.conv(cid).base_branch} was merged into your branch and these files have conflicts:\n${state.paths.map((p) => `- ${p}`).join("\n")}`;
+      this.resolving.add(cid);
+      try {
+        return await this.sendMessage(cid, prompt);
+      } finally {
+        this.resolving.delete(cid);
+      }
     });
   }
 

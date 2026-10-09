@@ -232,16 +232,18 @@ function ChatEntry(props: { item: ChatItem }) {
 
 function ChangesView(props: { conversation: Conversation }) {
   const { state, actions, backend } = useApp();
+  const running = () => props.conversation.status === "running";
   const [target, setTarget] = createSignal<string | null>(null);
   const [merging, setMerging] = createSignal(false);
   const data = createMemo(async () => {
     void state.repoVersion;
-    const [diff, unmerged, branches] = await Promise.all([
+    const [diff, unmerged, branches, merging] = await Promise.all([
       backend.conversationDiff(props.conversation.id),
       backend.unmergedCommits(props.conversation.id),
       backend.branches(props.conversation.workspace_id),
+      backend.mergeState(props.conversation.id),
     ]);
-    return { diff, unmerged, targets: branches.filter((b) => b.kind === "local").map((b) => b.name) };
+    return { diff, unmerged, merging, targets: branches.filter((b) => b.kind === "local").map((b) => b.name) };
   });
   const defaultTarget = (targets: string[]) => (targets.includes(props.conversation.base_branch) ? props.conversation.base_branch : (targets[0] ?? ""));
   const merge = async (fallback: string) => {
@@ -253,6 +255,34 @@ function ChangesView(props: { conversation: Conversation }) {
     <div class="flex-1 overflow-y-auto px-6 py-4" data-testid="changes-view">
       <Errored fallback={(err) => <ErrorBox message={errorText(err())} />}>
         <Loading fallback={<Spinner label="Loading changes…" />}>
+          <Show when={data().merging}>
+            {(paths) => (
+              <div class="mb-4 flex flex-col gap-2 rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-sm" data-testid="merge-banner">
+                <p class="text-amber-200">
+                  Updating from {props.conversation.base_branch} left conflicts in {paths().length} {paths().length === 1 ? "file" : "files"}:
+                </p>
+                <ul class="font-mono text-xs text-amber-100">
+                  <For each={paths()}>{(p) => <li>{p}</li>}</For>
+                </ul>
+                <div class="flex gap-2">
+                  <Button size="sm" disabled={running()} onClick={() => void actions.resolveConflicts(props.conversation.id)} data-testid="resolve-conflicts">
+                    Ask the agent to resolve
+                  </Button>
+                  <Button size="sm" variant="secondary" disabled={running()} onClick={() => void actions.abortUpdate(props.conversation.id)} data-testid="abort-update">
+                    Abort update
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Show>
+          <div class="mb-4 flex flex-wrap items-center gap-2 text-sm">
+            <Button size="sm" variant="secondary" disabled={running() || !!data().merging} onClick={() => void actions.updateFromBase(props.conversation.id)} data-testid="update-from-base">
+              Update from {props.conversation.base_branch}
+            </Button>
+            <Button size="sm" variant="secondary" disabled={running() || !!data().merging} onClick={() => void actions.rebase(props.conversation.id)} data-testid="rebase">
+              Rebase onto {props.conversation.base_branch}
+            </Button>
+          </div>
           <div class="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm">
             <span class="text-zinc-400">
               {data().unmerged.length} {data().unmerged.length === 1 ? "commit" : "commits"} not on any local or origin branch

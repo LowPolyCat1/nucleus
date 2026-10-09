@@ -119,6 +119,7 @@ function Branches(props: { workspaceId: string }) {
   return (
     <Errored fallback={(err) => <ErrorBox message={errorText(err())} />}>
       <Loading fallback={<Spinner label="Loading history…" />}>
+        <RemoteBar workspaceId={props.workspaceId} localBranches={data().branches.filter((b) => b.kind === "local").map((b) => b.name)} />
         <div class="mb-3 flex flex-wrap items-center gap-2 text-sm" data-testid="compare">
           <span class="text-zinc-500">Compare</span>
           <select class={[inputBase, "w-48"]} onChange={(e) => setFrom(e.currentTarget.value)} aria-label="Compare from">
@@ -294,5 +295,56 @@ function WorkspaceSetup(props: { workspace: Workspace }) {
         )}
       </Show>
     </div>
+  );
+}
+
+function RemoteBar(props: { workspaceId: string; localBranches: string[] }) {
+  const { actions, backend } = useApp();
+  const remotes = createMemo(() => backend.remotes(props.workspaceId));
+  const [branch, setBranch] = createSignal<string | null>(null);
+  const [remote, setRemote] = createSignal<string | null>(null);
+  const [busy, setBusy] = createSignal(false);
+  const run = async (f: () => Promise<unknown>) => {
+    setBusy(true);
+    await f();
+    setBusy(false);
+  };
+  return (
+    <Show when={remotes().length > 0}>
+      <div class="mb-3 flex flex-wrap items-center gap-2 text-sm" data-testid="remote-bar">
+        <Button size="sm" variant="secondary" disabled={busy()} onClick={() => void run(() => actions.fetchRemotes(props.workspaceId, null))} data-testid="fetch">
+          Fetch
+        </Button>
+        <span class="ml-4 text-zinc-500">Push</span>
+        <select class={[inputBase, "w-44"]} aria-label="Branch to push" onChange={(e) => setBranch(e.currentTarget.value)}>
+          <For each={props.localBranches}>
+            {(b) => (
+              <option value={b} selected={b === (branch() ?? props.localBranches[0])}>
+                {b}
+              </option>
+            )}
+          </For>
+        </select>
+        <span class="text-zinc-600">to</span>
+        <select class={[inputBase, "w-32"]} aria-label="Remote" onChange={(e) => setRemote(e.currentTarget.value)}>
+          <For each={remotes()}>
+            {(r) => (
+              <option value={r} selected={r === (remote() ?? remotes()[0])}>
+                {r}
+              </option>
+            )}
+          </For>
+        </select>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={busy() || !props.localBranches.length}
+          onClick={() => void run(() => actions.push(props.workspaceId, branch() ?? props.localBranches[0], remote() ?? remotes()[0]))}
+          data-testid="push"
+        >
+          Push
+        </Button>
+      </div>
+    </Show>
   );
 }

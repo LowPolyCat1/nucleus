@@ -84,3 +84,16 @@ pub enum MergeOutcome {
         paths: Vec<String>,
     },
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RebaseOutcome {
+    UpToDate,
+    Rebased {
+        commit: String,
+    },
+    /// Nothing was changed; these paths conflict.
+    Conflicts {
+        paths: Vec<String>,
+    },
+}

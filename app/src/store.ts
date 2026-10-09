@@ -326,6 +326,54 @@ export function createApp(backend: Backend, options: { toastMs?: number } = {}) 
       }
       return out;
     },
+    async fetchRemotes(workspaceId: string, remote: string | null) {
+      const ok = await attempt(() => backend.fetch(workspaceId, remote).then(() => true), remote ? `Fetched ${remote}` : "Fetched all remotes");
+      if (ok) bumpRepo();
+    },
+    async push(workspaceId: string, branch: string, remote: string) {
+      const ok = await attempt(() => backend.push(workspaceId, branch, remote).then(() => true), `Pushed ${branch} to ${remote}`);
+      if (ok) bumpRepo();
+    },
+    async updateFromBase(id: string) {
+      const out = await attempt(() => backend.updateFromBase(id));
+      if (out) {
+        if (out.kind === "up_to_date") toast("info", "Already up to date with the base branch");
+        else if (out.kind === "conflicts") toast("error", `The update has conflicts in ${out.paths.join(", ")}. Ask the agent to resolve them or abort.`);
+        else toast("success", "Updated from the base branch");
+        bumpRepo();
+      }
+      return out;
+    },
+    async rebase(id: string) {
+      const out = await attempt(() => backend.rebaseConversation(id));
+      if (out) {
+        if (out.kind === "up_to_date") toast("info", "Already based on the latest base branch");
+        else if (out.kind === "conflicts") toast("error", `Rebasing would conflict in ${out.paths.join(", ")}; nothing changed. Use Update from base instead.`);
+        else toast("success", "Rebased onto the base branch");
+        bumpRepo();
+      }
+      return out;
+    },
+    async abortUpdate(id: string) {
+      await attempt(() => backend.abortUpdate(id), "Update aborted");
+      bumpRepo();
+    },
+    async resolveConflicts(id: string) {
+      setState((s) => {
+        s.tab = "chat";
+        s.chats[id] = startTurn(s.chats[id] ?? emptyChat(), "Resolve the conflicts from the update");
+      });
+      try {
+        await backend.resolveConflicts(id);
+      } catch (e) {
+        const message = errorMessage(e);
+        setState((s) => {
+          s.chats[id] = applyEvent(s.chats[id] ?? emptyChat(), { type: "error", message });
+        });
+      }
+      await attempt(refresh);
+      bumpRepo();
+    },
     async saveSettings(settings: Settings) {
       const ok = await attempt(() => backend.updateSettings(settings).then(() => true), "Settings saved");
       if (ok) await attempt(refresh);

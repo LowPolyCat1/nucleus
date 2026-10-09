@@ -17,6 +17,7 @@ import type {
   NetworkPolicy,
   Proposal,
   ProposalDetail,
+  RebaseOutcome,
   Settings,
   SkillSummary,
   TemplateManifest,
@@ -49,6 +50,11 @@ export interface Backend {
   templateBuildLog(name: string): Promise<string | null>;
 
   branches(workspaceId: string): Promise<BranchInfo[]>;
+  remotes(workspaceId: string): Promise<string[]>;
+  /** Fetch one remote, or all when `remote` is null. */
+  fetch(workspaceId: string, remote: string | null): Promise<void>;
+  /** Push a local (non-agent) branch; returns git's report. */
+  push(workspaceId: string, branch: string, remote: string): Promise<string>;
   graph(workspaceId: string, limit: number): Promise<CommitInfo[]>;
   diff(workspaceId: string, from: string, to: string): Promise<FileDiff[]>;
 
@@ -65,6 +71,14 @@ export interface Backend {
   conversationDiff(id: string): Promise<FileDiff[]>;
   unmergedCommits(id: string): Promise<CommitInfo[]>;
   mergeConversation(id: string, into: string): Promise<MergeOutcome>;
+  /** Merge the base branch into the agent branch; conflicts stay for the agent to resolve. */
+  updateFromBase(id: string): Promise<MergeOutcome>;
+  rebaseConversation(id: string): Promise<RebaseOutcome>;
+  /** Conflicted paths while an update from the base is in progress, else null. */
+  mergeState(id: string): Promise<string[] | null>;
+  abortUpdate(id: string): Promise<void>;
+  /** Run a turn asking the agent to resolve the conflicts; the merge is concluded after it. */
+  resolveConflicts(id: string): Promise<TurnSummary>;
 
   proposals(): Promise<Proposal[]>;
   proposal(kind: LibraryKind, id: string): Promise<ProposalDetail>;

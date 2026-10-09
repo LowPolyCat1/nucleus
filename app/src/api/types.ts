@@ -157,6 +157,8 @@ export type MergeOutcome =
   | { kind: "merged"; commit: string }
   | { kind: "conflicts"; paths: string[] };
 
+export type RebaseOutcome = { kind: "up_to_date" } | { kind: "rebased"; commit: string } | { kind: "conflicts"; paths: string[] };
+
 export type MountKind = { mode: "readonly" } | { mode: "overlay" } | { mode: "worktree"; path: string };
 
 export interface TemplateManifest {

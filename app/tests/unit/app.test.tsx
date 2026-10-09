@@ -530,3 +530,92 @@ describe("network and build logs", () => {
     expect(await r.findByTestId("build-log")).toHaveTextContent("$ pnpm install --frozen-lockfile");
   });
 });
+
+describe("keeping agent branches current", () => {
+  const openChanges = async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    await withKey(r.backend);
+    const conv = r.backend.conversations[0];
+    fireEvent.click(await r.findByTestId(`conversation-${conv.id}`));
+    await user.click(await r.findByRole("tab", { name: "Changes" }));
+    await r.findByTestId("update-from-base");
+    return { r, user, conv };
+  };
+
+  test("clean update from base", async () => {
+    const { r, user, conv } = await openChanges();
+    r.backend.commitOnBranch(conv.workspace_id, "main", "docs/new.md", "new\n");
+    await user.click(r.getByTestId("update-from-base"));
+    expect(await r.findByText("Updated from the base branch")).toBeInTheDocument();
+    await user.click(r.getByTestId("update-from-base"));
+    expect(await r.findByText("Already up to date with the base branch")).toBeInTheDocument();
+  });
+
+  test("conflicts: abort, then let the agent resolve", async () => {
+    const { r, user, conv } = await openChanges();
+    r.backend.commitOnBranch(conv.workspace_id, "main", "src/lib.rs", "main side\n");
+    await user.click(r.getByTestId("update-from-base"));
+    expect(await r.findByTestId("merge-banner")).toHaveTextContent("src/lib.rs");
+    expect(r.getByTestId("update-from-base")).toBeDisabled();
+    expect(r.getByTestId("rebase")).toBeDisabled();
+    await user.click(r.getByTestId("abort-update"));
+    await waitFor(() => expect(r.queryByTestId("merge-banner")).not.toBeInTheDocument());
+
+    await user.click(r.getByTestId("update-from-base"));
+    await user.click(await r.findByTestId("resolve-conflicts"));
+    expect(await r.findByText("Resolve the conflicts from the update")).toBeInTheDocument();
+    expect(await r.findByTestId("msg-turn")).toBeInTheDocument();
+    await user.click(r.getByRole("tab", { name: "Changes" }));
+    await waitFor(() => expect(r.queryByTestId("merge-banner")).not.toBeInTheDocument());
+    const log = await r.backend.graph(conv.workspace_id, 50);
+    expect(log.some((c) => c.parents.length === 2 && c.summary === "Agent turn: resolve conflicts")).toBe(true);
+  });
+
+  test("a normal turn during an unresolved update commits nothing", async () => {
+    const { r, user, conv } = await openChanges();
+    r.backend.commitOnBranch(conv.workspace_id, "main", "src/lib.rs", "main side\n");
+    await user.click(r.getByTestId("update-from-base"));
+    await r.findByTestId("merge-banner");
+    await user.click(r.getByRole("tab", { name: "Chat" }));
+    await user.type(await r.findByLabelText("Message"), "unrelated");
+    await user.click(r.getByTestId("send"));
+    expect(await r.findByText(/Conflict markers remain in src\/lib.rs/)).toBeInTheDocument();
+  });
+
+  test("rebase: clean and conflicting", async () => {
+    const { r, user, conv } = await openChanges();
+    r.backend.commitOnBranch(conv.workspace_id, "main", "other.txt", "o\n");
+    await user.click(r.getByTestId("rebase"));
+    expect(await r.findByText("Rebased onto the base branch")).toBeInTheDocument();
+    r.backend.commitOnBranch(conv.workspace_id, "main", "src/lib.rs", "main side\n");
+    await user.click(r.getByTestId("rebase"));
+    expect(await r.findByText(/Rebasing would conflict in src\/lib.rs/)).toBeInTheDocument();
+  });
+
+  test("fetch and push from the branches tab", async () => {
+    const user = userEvent.setup();
+    const r = renderApp();
+    const ws = r.backend.workspaces[0];
+    r.backend.queueRemoteCommit(ws.id, "main", "remote.txt", "r\n");
+    await user.click(await r.findByTestId("fetch"));
+    expect(await r.findByText("Fetched all remotes")).toBeInTheDocument();
+    await waitFor(() => expect(r.getAllByTestId("graph-row").some((row) => row.textContent?.includes("Remote: edit remote.txt"))).toBe(true));
+    await user.selectOptions(r.getByLabelText("Branch to push"), "local/feature");
+    await user.click(r.getByTestId("push"));
+    expect(await r.findByText("Pushed local/feature to origin")).toBeInTheDocument();
+    expect(await r.findByTestId("branch-origin/local/feature")).toBeInTheDocument();
+    // main is behind origin/main now: rejected.
+    await user.selectOptions(r.getByLabelText("Branch to push"), "main");
+    await user.click(r.getByTestId("push"));
+    expect(await r.findByText(/non-fast-forward/)).toBeInTheDocument();
+  });
+
+  test("no remote bar without remotes", async () => {
+    const r = renderApp({ seed: false });
+    await r.findByText("No workspace yet");
+    await r.app.actions.addWorkspace("/x/y", null);
+    expect(await r.findByTestId("branch-tree")).toBeInTheDocument();
+    expect(r.queryByTestId("remote-bar")).not.toBeInTheDocument();
+  });
+});

@@ -11,6 +11,7 @@ mod launcher;
 mod proposals;
 mod sandbox_git;
 mod state;
+mod update;
 
 pub use events::{EventSink, HarnessEvent};
 pub use image::{AGENT_CONTAINERFILE, BUILD_CA_FILE, build_agent_image, build_image};
@@ -803,7 +804,24 @@ impl Harness {
             }
         }
         let message = format!("Agent turn: {}\n\nConversation: {}", first_line(prompt, 60), conv.id);
-        match vcs.commit_all(&conv.worktree, &message).await {
+        // During an update from the base, committing concludes the merge: only once every
+        // conflict marker is gone.
+        let unresolved = match vcs.merge_conflicts(&conv.worktree).await {
+            Ok(Some(paths)) => self.unresolved(&conv.worktree, &paths),
+            _ => Vec::new(),
+        };
+        let commit_result = if unresolved.is_empty() {
+            vcs.commit_all(&conv.worktree, &message).await
+        } else {
+            self.emit(HarnessEvent::Agent {
+                conversation_id: conv.id.clone(),
+                event: AgentEvent::Error {
+                    message: format!("Conflict markers remain in {}; nothing was committed. Ask the agent again or abort the update.", unresolved.join(", ")),
+                },
+            });
+            Ok(None)
+        };
+        match commit_result {
             Ok(Some(commit)) => {
                 tracing::info!(conversation = %conv.id, %commit, "committed agent changes");
                 self.emit(HarnessEvent::Committed {
@@ -969,6 +987,10 @@ impl Harness {
             .map_err(|_| anyhow!("wait for the running turn to finish or cancel it"))?;
         let conv = self.state.lock().await.conversation(conversation_id)?.clone();
         let vcs = self.vcs_for(&conv.workspace_id).await?;
+        // An unfinished update from the base would otherwise be committed with its markers.
+        if vcs.merge_conflicts(&conv.worktree).await?.is_some() {
+            vcs.abort_merge(&conv.worktree).await?;
+        }
         // Commit anything left in the worktree so the unmerged check sees it.
         vcs.commit_all(
             &conv.worktree,

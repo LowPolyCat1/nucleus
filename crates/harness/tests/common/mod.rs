@@ -34,6 +34,10 @@ case "$mode" in
     GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git log --format=%s > "$NUCLEUS_FAKE_DIR/gitlog"
     GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git status --porcelain > "$NUCLEUS_FAKE_DIR/gitstatus"
     ;;
+  resolve)
+    # Resolve every conflicted file by replacing it.
+    grep -rl '^<<<<<<<' --exclude-dir=.git . | while read -r f; do echo resolved > "$f"; done
+    ;;
   gitamend)
     echo amended >> committed.txt
     GIT_DIR="$NUCLEUS_GIT_DIR" GIT_WORK_TREE=. git commit -q -a --amend -m "agent: rewritten"

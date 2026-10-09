@@ -149,3 +149,22 @@ test("network tab reports blocked egress", async ({ app }) => {
   await expect(app.getByTestId("denied-summary")).toContainText("blocked");
   await expect(app.locator('[data-testid="egress-row"][data-verdict="deny"]')).toContainText("example.com:443");
 });
+
+test("update from base with conflicts resolved by the agent", async ({ app }) => {
+  await open(app);
+  await setApiKey(app);
+  await app.evaluate(() => {
+    const m = window.__nucleusMock!;
+    m.commitOnBranch(m.workspaces[0].id, "main", "src/lib.rs", "main side\n");
+  });
+  await app.locator('[data-testid^="conversation-"]').first().click();
+  await app.getByRole("tab", { name: "Changes" }).click();
+  await app.getByTestId("update-from-base").click();
+  await expect(app.getByTestId("merge-banner")).toContainText("src/lib.rs");
+  await app.getByTestId("resolve-conflicts").click();
+  await expect(app.getByTestId("msg-turn")).toBeVisible();
+  await app.getByRole("tab", { name: "Changes" }).click();
+  await expect(app.getByTestId("merge-banner")).toHaveCount(0);
+  await app.getByTestId("merge").click();
+  await expect(app.getByTestId("toast-success").filter({ hasText: "Merged into main" })).toBeVisible();
+});

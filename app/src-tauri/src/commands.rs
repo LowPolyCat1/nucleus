@@ -289,3 +289,51 @@ pub async fn template_build_log(core: S<'_>, name: String) -> CmdResult<Option<S
 pub async fn egress_log(core: S<'_>, id: String) -> CmdResult<nucleus_harness::EgressLog> {
     core.harness().await?.egress_log(&id).await.map_err(err)
 }
+
+#[tauri::command]
+pub async fn remotes(core: S<'_>, workspace_id: String) -> CmdResult<Vec<String>> {
+    core.harness().await?.remotes(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn fetch(core: S<'_>, workspace_id: String, remote: Option<String>) -> CmdResult<()> {
+    core.harness()
+        .await?
+        .fetch(&workspace_id, remote.as_deref())
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn push(core: S<'_>, workspace_id: String, branch: String, remote: String) -> CmdResult<String> {
+    core.harness()
+        .await?
+        .push(&workspace_id, &branch, &remote)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn update_from_base(core: S<'_>, id: String) -> CmdResult<MergeOutcome> {
+    core.harness().await?.update_from_base(&id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn rebase_conversation(core: S<'_>, id: String) -> CmdResult<nucleus_vcs::RebaseOutcome> {
+    core.harness().await?.rebase_conversation(&id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn merge_state(core: S<'_>, id: String) -> CmdResult<Option<Vec<String>>> {
+    core.harness().await?.merge_state(&id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn abort_update(core: S<'_>, id: String) -> CmdResult<()> {
+    core.harness().await?.abort_update(&id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn resolve_conflicts(core: S<'_>, id: String) -> CmdResult<TurnSummary> {
+    core.harness().await?.resolve_conflicts(&id).await.map_err(err)
+}

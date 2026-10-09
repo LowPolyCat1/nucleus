@@ -75,4 +75,28 @@ pub trait Vcs: Send + Sync {
 
     /// Path of the git directory shared by all worktrees.
     fn common_dir(&self) -> PathBuf;
+
+    /// Configured remotes.
+    async fn remotes(&self) -> Result<Vec<String>>;
+
+    /// Fetch from `remote`, or from every remote when `None`. Prunes deleted branches.
+    async fn fetch(&self, remote: Option<&str>) -> Result<()>;
+
+    /// Push local `branch` to the same name on `remote` and set it as upstream.
+    async fn push(&self, branch: &str, remote: &str) -> Result<String>;
+
+    /// Rebase the branch checked out in `worktree` onto `onto`. Conflicts abort the rebase and
+    /// leave the branch as it was.
+    async fn rebase(&self, worktree: &Path, onto: &str) -> Result<RebaseOutcome>;
+
+    /// Merge `from` into the branch checked out in `worktree`. Unlike [`Vcs::merge`],
+    /// conflicts are left in the working tree for someone to resolve; see
+    /// [`Vcs::merge_conflicts`] and [`Vcs::abort_merge`].
+    async fn merge_in_worktree(&self, worktree: &Path, from: &str, message: &str) -> Result<MergeOutcome>;
+
+    /// Paths with unresolved conflicts when a merge is in progress in `worktree`.
+    async fn merge_conflicts(&self, worktree: &Path) -> Result<Option<Vec<String>>>;
+
+    /// Abort a merge in progress in `worktree`.
+    async fn abort_merge(&self, worktree: &Path) -> Result<()>;
 }
